@@ -1,10 +1,13 @@
+
 name: Kya Bache Daily AI Video
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *"
-      timezone: "Asia/Kolkata"
+    # 6:00 AM IST = 00:30 UTC
+    - cron: "30 0 * * *"
+    # 6:00 PM IST = 12:30 UTC
+    - cron: "30 12 * * *"
 
 permissions:
   contents: read
@@ -37,15 +40,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate video and upload to YouTube
+      - name: Generate fresh Hindi story video
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
+
+      - name: Upload video publicly to YouTube
+        env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_PRIVACY: "private"
-          OPENAI_TEXT_MODEL: "gpt-5.5"
-          OPENAI_IMAGE_MODEL: "gpt-image-1"
-          OPENAI_TTS_MODEL: "gpt-4o-mini-tts"
-          OPENAI_TTS_VOICE: "coral"
-        run: python main.py
+        run: python output/upload_video.py
