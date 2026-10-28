@@ -34,7 +34,7 @@ else:
         "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
     )
 
-GEMINI_TIMEOUT_SECONDS = 90
+GEMINI_TIMEOUT_SECONDS = 300
 TTS_TIMEOUT_SECONDS = 60
 
 
