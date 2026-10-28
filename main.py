@@ -24,8 +24,8 @@ from google import genai
 MODEL_NAME = "gemini-3.8-flash"
 VOICE = "hi-IN-SwaraNeural"
 
-WIDTH = 720
-HEIGHT = 1280
+WIDTH = 1280
+HEIGHT = 720
 FPS = 25
 
 BASE_DIR = Path(__file__).resolve().parent
