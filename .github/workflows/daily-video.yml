@@ -30,15 +30,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg and Hindi fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-noto-core
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Verify Hindi font
+        run: |
+          test -f /usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
 
       - name: Generate fresh Hindi story video
         env:

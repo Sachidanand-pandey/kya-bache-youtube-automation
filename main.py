@@ -4,13 +4,13 @@ import re
 import json
 import asyncio
 import subprocess
+import platform
 from pathlib import Path
 from datetime import datetime
 
 import edge_tts
 from PIL import Image, ImageDraw, ImageFont
 from google import genai
-
 
 # ==========================================
 # KYA BACHE - HINDI STORY VIDEO AUTOMATION
@@ -25,23 +25,31 @@ FPS = 25
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
-FONT_PATH = Path(r"C:\Windows\Fonts\Nirmala.ttc")
+
+# Use the correct Hindi font for each operating system.
+if platform.system() == "Windows":
+    FONT_PATH = Path(r"C:\Windows\Fonts\Nirmala.ttc")
+else:
+    FONT_PATH = Path(
+        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
+    )
 
 GEMINI_TIMEOUT_SECONDS = 90
 TTS_TIMEOUT_SECONDS = 60
 
 
 def check_requirements():
-    """Check API key, font, and FFmpeg."""
+    """Check API key, Hindi font, and FFmpeg."""
 
     if not os.getenv("GEMINI_API_KEY"):
         raise RuntimeError(
-            "GEMINI_API_KEY is missing. Set it in PowerShell first."
+            "GEMINI_API_KEY is missing. Configure it in your environment."
         )
 
     if not FONT_PATH.exists():
         raise FileNotFoundError(
-            f"Hindi font not found: {FONT_PATH}"
+            f"Hindi font not found: {FONT_PATH}. "
+            "Install a Hindi-compatible font on this system."
         )
 
     result = subprocess.run(
@@ -56,7 +64,7 @@ def check_requirements():
 
 
 def generate_story():
-    """Generate an original Hindi children's story."""
+    """Generate an original Hindi children's story using Gemini."""
 
     print("\n1. Generating Hindi story with Gemini...", flush=True)
 
@@ -105,9 +113,8 @@ Requirements:
         raise RuntimeError("Gemini returned an empty response.")
 
     story_text = response.text.strip()
-
     story_text = re.sub(
-        r"^```(?:json)?\s*|\s*```$",
+        r"^\`\`\`(?:json)?\s*|\s*\`\`\`$",
         "",
         story_text,
         flags=re.IGNORECASE
@@ -135,13 +142,13 @@ Requirements:
 
 
 def get_font(size):
-    """Load the Windows Hindi font."""
+    """Load the Hindi font."""
 
     return ImageFont.truetype(str(FONT_PATH), size)
 
 
 def wrap_text(draw, text, font, max_width):
-    """Wrap Hindi subtitles without requiring libraqm."""
+    """Wrap Hindi subtitles into lines."""
 
     words = text.split()
     lines = []
@@ -175,51 +182,76 @@ def draw_child(draw, x, y, scale=1):
 
     # Body
     draw.rounded_rectangle(
-        (x - 35 * scale, y + 55 * scale,
-         x + 35 * scale, y + 140 * scale),
+        (
+            x - 35 * scale, y + 55 * scale,
+            x + 35 * scale, y + 140 * scale
+        ),
         radius=int(12 * scale),
         fill="#3978D4"
     )
 
     # Legs
     draw.line(
-        (x - 15 * scale, y + 135 * scale,
-         x - 25 * scale, y + 185 * scale),
-        fill="#283747", width=int(10 * scale)
+        (
+            x - 15 * scale, y + 135 * scale,
+            x - 25 * scale, y + 185 * scale
+        ),
+        fill="#283747",
+        width=int(10 * scale)
     )
+
     draw.line(
-        (x + 15 * scale, y + 135 * scale,
-         x + 25 * scale, y + 185 * scale),
-        fill="#283747", width=int(10 * scale)
+        (
+            x + 15 * scale, y + 135 * scale,
+            x + 25 * scale, y + 185 * scale
+        ),
+        fill="#283747",
+        width=int(10 * scale)
     )
 
     # Face
     draw.ellipse(
-        (x - 48 * scale, y - 45 * scale,
-         x + 48 * scale, y + 55 * scale),
-        fill="#F2C49B", outline="#8B5E3C", width=width
+        (
+            x - 48 * scale, y - 45 * scale,
+            x + 48 * scale, y + 55 * scale
+        ),
+        fill="#F2C49B",
+        outline="#8B5E3C",
+        width=width
     )
 
     # Hair
     draw.arc(
-        (x - 48 * scale, y - 55 * scale,
-         x + 48 * scale, y + 35 * scale),
-        start=180, end=360,
-        fill="#3B261B", width=max(4, int(15 * scale))
+        (
+            x - 48 * scale, y - 55 * scale,
+            x + 48 * scale, y + 35 * scale
+        ),
+        start=180,
+        end=360,
+        fill="#3B261B",
+        width=max(4, int(15 * scale))
     )
 
-    # Eyes and smile
+    # Eyes
     for eye_x in (x - 15 * scale, x + 15 * scale):
         draw.ellipse(
-            (eye_x - 4 * scale, y - 5 * scale,
-             eye_x + 4 * scale, y + 5 * scale),
+            (
+                eye_x - 4 * scale, y - 5 * scale,
+                eye_x + 4 * scale, y + 5 * scale
+            ),
             fill="#222222"
         )
 
+    # Smile
     draw.arc(
-        (x - 20 * scale, y + 5 * scale,
-         x + 20 * scale, y + 30 * scale),
-        start=10, end=170, fill="#9C3D35", width=3
+        (
+            x - 20 * scale, y + 5 * scale,
+            x + 20 * scale, y + 30 * scale
+        ),
+        start=10,
+        end=170,
+        fill="#9C3D35",
+        width=3
     )
 
 
@@ -230,54 +262,80 @@ def draw_squirrel(draw, x, y, scale=1):
 
     # Tail
     draw.ellipse(
-        (x + 15 * scale, y - 65 * scale,
-         x + 105 * scale, y + 30 * scale),
-        fill="#B96732", outline="#75401E", width=width
+        (
+            x + 15 * scale, y - 65 * scale,
+            x + 105 * scale, y + 30 * scale
+        ),
+        fill="#B96732",
+        outline="#75401E",
+        width=width
     )
+
     draw.ellipse(
-        (x + 35 * scale, y - 45 * scale,
-         x + 85 * scale, y + 5 * scale),
+        (
+            x + 35 * scale, y - 45 * scale,
+            x + 85 * scale, y + 5 * scale
+        ),
         fill="#F7C28B"
     )
 
     # Body
     draw.ellipse(
-        (x - 20 * scale, y + 5 * scale,
-         x + 50 * scale, y + 100 * scale),
-        fill="#C8793D", outline="#75401E", width=width
+        (
+            x - 20 * scale, y + 5 * scale,
+            x + 50 * scale, y + 100 * scale
+        ),
+        fill="#C8793D",
+        outline="#75401E",
+        width=width
     )
 
     # Ears
     draw.polygon(
-        [(x - 15 * scale, y + 5 * scale),
-         (x - 25 * scale, y - 20 * scale),
-         (x + 2 * scale, y + 2 * scale)],
+        [
+            (x - 15 * scale, y + 5 * scale),
+            (x - 25 * scale, y - 20 * scale),
+            (x + 2 * scale, y + 2 * scale)
+        ],
         fill="#C8793D"
     )
+
     draw.polygon(
-        [(x + 25 * scale, y + 5 * scale),
-         (x + 40 * scale, y - 20 * scale),
-         (x + 45 * scale, y + 12 * scale)],
+        [
+            (x + 25 * scale, y + 5 * scale),
+            (x + 40 * scale, y - 20 * scale),
+            (x + 45 * scale, y + 12 * scale)
+        ],
         fill="#C8793D"
     )
 
     # Face
     draw.ellipse(
-        (x - 25 * scale, y - 5 * scale,
-         x + 45 * scale, y + 60 * scale),
-        fill="#D88A4A", outline="#75401E", width=width
+        (
+            x - 25 * scale, y - 5 * scale,
+            x + 45 * scale, y + 60 * scale
+        ),
+        fill="#D88A4A",
+        outline="#75401E",
+        width=width
     )
 
+    # Eyes
     for eye_x in (x - 5 * scale, x + 20 * scale):
         draw.ellipse(
-            (eye_x - 3 * scale, y + 15 * scale,
-             eye_x + 4 * scale, y + 22 * scale),
+            (
+                eye_x - 3 * scale, y + 15 * scale,
+                eye_x + 4 * scale, y + 22 * scale
+            ),
             fill="#222222"
         )
 
+    # Nose
     draw.ellipse(
-        (x + 5 * scale, y + 30 * scale,
-         x + 13 * scale, y + 38 * scale),
+        (
+            x + 5 * scale, y + 30 * scale,
+            x + 13 * scale, y + 38 * scale
+        ),
         fill="#5A3020"
     )
 
@@ -312,11 +370,13 @@ def create_scene_image(story, scene, index, folder):
 
     # Title banner
     title_font = get_font(35)
+
     draw.rounded_rectangle(
         (25, 15, WIDTH - 25, 72),
         radius=18,
         fill="white"
     )
+
     draw.text(
         (WIDTH // 2, 43),
         story["title"],
@@ -398,14 +458,10 @@ def create_video(story, folder):
     """Create narration clips and combine them into an MP4."""
 
     print("\n3. Creating illustrations and video...", flush=True)
-
     segments = []
 
     for index, scene in enumerate(story["scenes"], start=1):
-        print(
-            f"Creating scene {index}/8...",
-            flush=True
-        )
+        print(f"Creating scene {index}/8...", flush=True)
 
         scene_image = create_scene_image(
             story, scene, index, folder
@@ -414,13 +470,13 @@ def create_video(story, folder):
         audio_path = folder / f"voice_{index:02d}.mp3"
         segment_path = folder / f"segment_{index:02d}.mp4"
 
-        print(f"Generating Hindi voice for scene {index}...", flush=True)
+        print(
+            f"Generating Hindi voice for scene {index}...",
+            flush=True
+        )
 
         asyncio.run(
-            create_voice(
-                scene["narration"],
-                audio_path
-            )
+            create_voice(scene["narration"], audio_path)
         )
 
         print(f"Assembling scene {index}...", flush=True)
@@ -455,7 +511,10 @@ def create_video(story, folder):
 
     final_video = folder / "daily_video.mp4"
 
-    print("\n4. Combining all scenes into the final video...", flush=True)
+    print(
+        "\n4. Combining all scenes into the final video...",
+        flush=True
+    )
 
     run_command([
         "ffmpeg",
