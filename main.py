@@ -1,40 +1,450 @@
 
 import os
-import re
-import json
-import time
+import math
 import asyncio
 import subprocess
 from pathlib import Path
 from datetime import datetime
 
+from PIL import Image, ImageDraw, ImageFont
 import edge_tts
-from google import genai
-from google.genai import types
 
-# KYA BACHE - AI illustrated Hindi story videos.
-# This creates AI scene images with camera movement,
-# narration and optional music.
-# It does NOT create full moving 3D character animation.
-
-TEXT_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
-IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
-VOICE = "hi-IN-SwaraNeural"
+# ==========================================
+# KYA BACHE - FREE HINDI STORY VIDEO
+# No Gemini API required
+# ==========================================
 
 WIDTH = 720
 HEIGHT = 1280
 FPS = 25
-SCENE_COUNT = 8
+VOICE = "hi-IN-SwaraNeural"
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 MUSIC_FILE = BASE_DIR / "music" / "background.mp3"
 
-SUBSCRIBE_TEXT = (
-    "ऐसी और मज़ेदार कहानियों के लिए "
-    "हमारे चैनल को सब्सक्राइब करें।"
-)
+# Use a timestamped folder for each generation.
+RUN_DIR = OUTPUT_DIR / datetime.now().strftime("%Y%m%d_%H%M%S")
 
+
+# ==========================================
+# STORY
+# ==========================================
+
+def create_story():
+    return {
+        "title": "नीली चिड़िया और प्यारा बच्चा",
+        "scenes": [
+            {
+                "text": "एक सुंदर जंगल में मोहन नाम का एक प्यारा बच्चा रहता था। "
+                        "उसे जानवरों और पक्षियों से बहुत प्यार था।",
+                "kind": "forest"
+            },
+            {
+                "text": "एक दिन मोहन को पेड़ के नीचे एक छोटी नीली चिड़िया मिली। "
+                        "चिड़िया उदास थी और उड़ नहीं पा रही थी।",
+                "kind": "bird"
+            },
+            {
+                "text": "मोहन ने प्यार से चिड़िया को अपने हाथों में उठाया। "
+                        "उसने चिड़िया को थोड़ा पानी पिलाया।",
+                "kind": "water"
+            },
+            {
+                "text": "पास ही एक सफेद खरगोश भी आ गया। "
+                        "दोनों ने मिलकर चिड़िया की मदद की।",
+                "kind": "rabbit"
+            },
+            {
+                "text": "कुछ देर बाद नीली चिड़िया खुश हो गई। "
+                        "उसने अपने सुंदर पंख फैलाए।",
+                "kind": "happy"
+            },
+            {
+                "text": "चिड़िया ने धीरे-धीरे उड़ना शुरू किया। "
+                        "मोहन और खरगोश उसे देखकर बहुत खुश हुए।",
+                "kind": "fly"
+            },
+            {
+                "text": "नीली चिड़िया आसमान में उड़कर वापस आई। "
+                        "वह मोहन के लिए एक सुंदर फूल लेकर आई।",
+                "kind": "flower"
+            },
+            {
+                "text": "मोहन ने सीखा कि दूसरों की मदद करना बहुत अच्छी बात है। "
+                        "हमें हमेशा जानवरों और पक्षियों से प्यार करना चाहिए।",
+                "kind": "ending"
+            }
+        ],
+        "moral": "दूसरों की मदद करना सबसे अच्छी आदत है।"
+    }
+
+
+# ==========================================
+# FONT
+# ==========================================
+
+def get_font(size, bold=False):
+    if os.name == "nt":
+        candidates = [
+            r"C:\Windows\Fonts\NirmalaB.ttf"
+            if bold else r"C:\Windows\Fonts\Nirmala.ttf",
+            r"C:\Windows\Fonts\arialbd.ttf"
+            if bold else r"C:\Windows\Fonts\arial.ttf",
+        ]
+    else:
+        candidates = [
+            "/usr/share/fonts/truetype/noto/"
+            + ("NotoSansDevanagari-Bold.ttf"
+               if bold else "NotoSansDevanagari-Regular.ttf"),
+            "/usr/share/fonts/truetype/dejavu/"
+            + ("DejaVuSans-Bold.ttf"
+               if bold else "DejaVuSans.ttf")
+        ]
+
+    for path in candidates:
+        if Path(path).exists():
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                pass
+
+    return ImageFont.load_default()
+
+
+# ==========================================
+# DRAWING HELPERS
+# ==========================================
+
+def draw_centered(draw, text, y, font, fill, width=WIDTH):
+    box = draw.textbbox((0, 0), text, font=font)
+    text_width = box[2] - box[0]
+    x = (width - text_width) // 2
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def draw_background(draw):
+    # Sky
+    draw.rectangle((0, 0, WIDTH, 800), fill="#8ED6FF")
+
+    # Sun
+    draw.ellipse((535, 90, 650, 205), fill="#FFD75E")
+
+    # Clouds
+    for x, y in [(80, 130), (320, 210), (500, 300)]:
+        draw.ellipse((x, y, x + 90, y + 45), fill="white")
+        draw.ellipse((x + 25, y - 20, x + 75, y + 40), fill="white")
+        draw.ellipse((x + 55, y, x + 115, y + 45), fill="white")
+
+    # Hills
+    draw.ellipse((-180, 510, 450, 1050), fill="#6CCB77")
+    draw.ellipse((230, 470, 900, 1050), fill="#38A95B")
+
+    # Grass
+    draw.rectangle((0, 820, WIDTH, HEIGHT), fill="#4DAE57")
+
+    # Trees
+    for x, y in [(55, 580), (600, 550)]:
+        draw.rectangle((x + 35, y + 100, x + 65, y + 250),
+                       fill="#87502D")
+        draw.ellipse((x, y, x + 100, y + 150),
+                     fill="#218B49")
+        draw.ellipse((x + 15, y - 35, x + 105, y + 90),
+                     fill="#2E9F50")
+
+
+def draw_boy(draw, x, y, scale=1.0):
+    # x,y is top of head.
+    s = scale
+
+    # Hair and face
+    draw.ellipse((x, y, x + 100*s, y + 100*s),
+                 fill="#F4BE88")
+    draw.pieslice((x - 5*s, y - 10*s, x + 105*s, y + 70*s),
+                  180, 360, fill="#51301F")
+
+    # Eyes
+    draw.ellipse((x + 25*s, y + 40*s, x + 35*s, y + 52*s),
+                 fill="#222222")
+    draw.ellipse((x + 65*s, y + 40*s, x + 75*s, y + 52*s),
+                 fill="#222222")
+
+    # Smile
+    draw.arc((x + 35*s, y + 52*s, x + 68*s, y + 78*s),
+             0, 180, fill="#9E3B35", width=max(2, int(3*s)))
+
+    # Shirt and body
+    draw.rounded_rectangle(
+        (x - 10*s, y + 95*s, x + 110*s, y + 245*s),
+        radius=int(20*s),
+        fill="#F04B4B"
+    )
+
+    # Arms
+    draw.line(
+        (x, y + 120*s, x - 45*s, y + 180*s),
+        fill="#F4BE88",
+        width=max(8, int(18*s))
+    )
+    draw.line(
+        (x + 100*s, y + 120*s, x + 145*s, y + 180*s),
+        fill="#F4BE88",
+        width=max(8, int(18*s))
+    )
+
+    # Legs
+    draw.line(
+        (x + 25*s, y + 235*s, x + 15*s, y + 310*s),
+        fill="#244C9A",
+        width=max(8, int(22*s))
+    )
+    draw.line(
+        (x + 75*s, y + 235*s, x + 85*s, y + 310*s),
+        fill="#244C9A",
+        width=max(8, int(22*s))
+    )
+
+    # Shoes
+    draw.ellipse((x - 5*s, y + 295*s, x + 30*s, y + 320*s),
+                 fill="#51301F")
+    draw.ellipse((x + 70*s, y + 295*s, x + 110*s, y + 320*s),
+                 fill="#51301F")
+
+
+def draw_bird(draw, x, y, scale=1.0):
+    s = scale
+
+    # Body
+    draw.ellipse((x, y, x + 125*s, y + 90*s),
+                 fill="#2388F5")
+
+    # Wing
+    draw.ellipse((x + 20*s, y + 15*s, x + 85*s, y + 75*s),
+                 fill="#57B5FF")
+
+    # Head
+    draw.ellipse((x + 75*s, y - 30*s, x + 145*s, y + 40*s),
+                 fill="#2388F5")
+
+    # Eye
+    draw.ellipse((x + 118*s, y - 5*s, x + 130*s, y + 7*s),
+                 fill="white")
+    draw.ellipse((x + 122*s, y - 2*s, x + 128*s, y + 4*s),
+                 fill="#111111")
+
+    # Beak
+    draw.polygon([
+        (x + 140*s, y + 5*s),
+        (x + 165*s, y + 15*s),
+        (x + 140*s, y + 22*s)
+    ], fill="#FFB52E")
+
+    # Tail
+    draw.polygon([
+        (x + 5*s, y + 30*s),
+        (x - 30*s, y + 5*s),
+        (x - 20*s, y + 48*s)
+    ], fill="#1663C7")
+
+    # Feet
+    draw.line((x + 45*s, y + 82*s, x + 42*s, y + 102*s),
+              fill="#FFB52E", width=max(2, int(4*s)))
+    draw.line((x + 75*s, y + 82*s, x + 72*s, y + 102*s),
+              fill="#FFB52E", width=max(2, int(4*s)))
+
+
+def draw_rabbit(draw, x, y, scale=1.0):
+    s = scale
+
+    # Ears
+    draw.ellipse((x + 10*s, y - 80*s, x + 40*s, y + 20*s),
+                 fill="white")
+    draw.ellipse((x + 50*s, y - 90*s, x + 80*s, y + 20*s),
+                 fill="white")
+
+    # Body and head
+    draw.ellipse((x, y + 50*s, x + 110*s, y + 145*s),
+                 fill="white")
+    draw.ellipse((x + 20*s, y, x + 105*s, y + 90*s),
+                 fill="white")
+
+    # Eyes and nose
+    draw.ellipse((x + 40*s, y + 28*s, x + 49*s, y + 38*s),
+                 fill="#222222")
+    draw.ellipse((x + 75*s, y + 28*s, x + 84*s, y + 38*s),
+                 fill="#222222")
+    draw.ellipse((x + 59*s, y + 44*s, x + 68*s, y + 53*s),
+                 fill="#F18AA2")
+
+
+# ==========================================
+# CREATE A SCENE ILLUSTRATION
+# ==========================================
+
+def make_scene_image(scene, number, folder):
+    image = Image.new("RGB", (WIDTH, HEIGHT), "white")
+    draw = ImageDraw.Draw(image)
+
+    draw_background(draw)
+
+    kind = scene["kind"]
+
+    if kind == "forest":
+        draw_boy(draw, 255, 620, 1.15)
+        draw_bird(draw, 480, 630, 0.85)
+
+    elif kind == "bird":
+        draw_boy(draw, 120, 650, 0.95)
+        draw_bird(draw, 445, 700, 1.0)
+
+    elif kind == "water":
+        draw_boy(draw, 140, 650, 0.95)
+        draw_bird(draw, 425, 735, 0.8)
+        draw.ellipse((395, 840, 515, 880), fill="#71D8FF")
+        draw.ellipse((420, 850, 440, 858), fill="#FFFFFF")
+
+    elif kind == "rabbit":
+        draw_boy(draw, 75, 650, 0.9)
+        draw_bird(draw, 325, 720, 0.75)
+        draw_rabbit(draw, 500, 760, 0.85)
+
+    elif kind == "happy":
+        draw_boy(draw, 110, 640, 0.95)
+        draw_bird(draw, 430, 620, 1.0)
+        draw_rabbit(draw, 510, 790, 0.65)
+
+    elif kind == "fly":
+        draw_boy(draw, 110, 670, 0.95)
+        draw_bird(draw, 460, 380, 0.9)
+        draw_rabbit(draw, 510, 800, 0.65)
+
+    elif kind == "flower":
+        draw_boy(draw, 115, 650, 0.95)
+        draw_bird(draw, 430, 630, 0.9)
+
+        # Flower
+        fx, fy = 540, 880
+        draw.line((fx, fy, fx, fy + 65), fill="#24863D", width=7)
+        for angle in range(0, 360, 60):
+            a = math.radians(angle)
+            cx = fx + int(15 * math.cos(a))
+            cy = fy + int(15 * math.sin(a))
+            draw.ellipse((cx - 10, cy - 10, cx + 10, cy + 10),
+                         fill="#FF77B7")
+        draw.ellipse((fx - 8, fy - 8, fx + 8, fy + 8),
+                     fill="#FFD447")
+
+    else:
+        draw_boy(draw, 110, 650, 0.95)
+        draw_bird(draw, 430, 620, 0.9)
+        draw_rabbit(draw, 510, 800, 0.65)
+
+    # Story title card
+    draw.rounded_rectangle(
+        (35, 35, WIDTH - 35, 170),
+        radius=25,
+        fill="#173A6C",
+        outline="#FFFFFF",
+        width=3
+    )
+
+    title_font = get_font(34, bold=True)
+    small_font = get_font(23)
+
+    draw_centered(
+        draw,
+        "कहानी का मज़ेदार सफर",
+        55,
+        title_font,
+        "white"
+    )
+
+    draw_centered(
+        draw,
+        f"दृश्य {number}",
+        112,
+        small_font,
+        "#FFE47A"
+    )
+
+    # Caption area
+    draw.rounded_rectangle(
+        (30, 1010, WIDTH - 30, 1210),
+        radius=25,
+        fill="#173A6C",
+        outline="white",
+        width=3
+    )
+
+    caption_font = get_font(25)
+    words = scene["text"].split()
+    lines = []
+    current = ""
+
+    for word in words:
+        test = current + " " + word if current else word
+        box = draw.textbbox((0, 0), test, font=caption_font)
+
+        if box[2] - box[0] > WIDTH - 95:
+            if current:
+                lines.append(current)
+            current = word
+        else:
+            current = test
+
+    if current:
+        lines.append(current)
+
+    y = 1035
+    for line in lines[:4]:
+        draw_centered(draw, line, y, caption_font, "white")
+        y += 40
+
+    path = folder / f"scene_{number:02d}.png"
+    image.save(path)
+
+    return path
+
+
+# ==========================================
+# CREATE HINDI VOICE
+# ==========================================
+
+async def create_voice(text, output_path):
+    communicate = edge_tts.Communicate(
+        text=text,
+        voice=VOICE,
+        rate="+0%"
+    )
+
+    await asyncio.wait_for(
+        communicate.save(str(output_path)),
+        timeout=180
+    )
+
+
+def audio_duration(audio_path):
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(audio_path)
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30
+    )
+
+    try:
+        return max(4.0, float(result.stdout.strip()) + 0.5)
+    except (ValueError, AttributeError):
+        return 6.0
+
+
+# ==========================================
+# FFMPEG HELPERS
+# ==========================================
 
 def run_command(command, timeout=900):
     result = subprocess.run(
@@ -46,565 +456,261 @@ def run_command(command, timeout=900):
 
     if result.returncode != 0:
         raise RuntimeError(
-            "Command failed:\n" + result.stderr[-4000:]
+            "Command failed:\n" + result.stderr[-3000:]
         )
 
 
-def check_requirements():
-    if not os.getenv("GEMINI_API_KEY"):
-        raise RuntimeError(
-            "GEMINI_API_KEY missing. Set it in your "
-            "environment or GitHub Actions Secrets."
-        )
+def make_scene_video(image_path, audio_path, video_path, duration):
+    frames = int(duration * FPS)
 
-    for cmd in ("ffmpeg", "ffprobe"):
-        result = subprocess.run(
-            [cmd, "-version"],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"{cmd} is missing or not available on PATH."
-            )
-
-    if not MUSIC_FILE.exists():
-        print(
-            "NOTICE: music/background.mp3 not found; "
-            "video will have narration without background music."
-        )
+    run_command([
+        "ffmpeg", "-y",
+        "-loop", "1",
+        "-framerate", str(FPS),
+        "-i", str(image_path),
+        "-i", str(audio_path),
+        "-vf",
+        "scale=800:1422:force_original_aspect_ratio=increase,"
+        "crop=800:1422,"
+        f"zoompan=z='min(zoom+0.0004,1.06)':d={frames}:"
+        f"s={WIDTH}x{HEIGHT}:fps={FPS},format=yuv420p",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-t", str(duration),
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        str(video_path)
+    ], timeout=900)
 
 
-def generate_story(client):
-    prompt = f"""
-Create an original Hindi children's story for ages 4-8.
+# ==========================================
+# SUBSCRIBE OUTRO
+# ==========================================
 
-Return only valid JSON:
+def make_outro_image(path):
+    image = Image.new("RGB", (WIDTH, HEIGHT), "#132F58")
+    draw = ImageDraw.Draw(image)
 
-{{
-  "title": "Hindi title",
-  "scenes": [
-    {{
-      "narration": "Two or three complete Hindi sentences.",
-      "visual": "Detailed English visual description of every person, animal, object, action and setting in this scene."
-    }}
-  ],
-  "moral": "Short Hindi moral."
-}}
+    draw_background(draw)
 
-Requirements:
-- Exactly {SCENE_COUNT} scenes.
-- Natural Hindi in Devanagari.
-- Beginning, problem, clever solution and happy ending.
-- Different visual moment in every scene.
-- Keep character appearance consistent across scenes.
-- Describe every visible character and important object explicitly.
-- Friendly cinematic 3D animated storybook style.
-- No copyrighted characters, logos, text in image, or markdown.
-"""
+    draw_boy(draw, 70, 660, 0.8)
+    draw_bird(draw, 450, 640, 0.9)
+    draw_rabbit(draw, 490, 850, 0.65)
 
-    last_error = None
-
-    for attempt in range(1, 4):
-        try:
-            print(
-                f"Generating story (attempt {attempt}/3)...",
-                flush=True
-            )
-
-            response = client.models.generate_content(
-                model=TEXT_MODEL,
-                contents=prompt
-            )
-
-            raw = re.sub(
-                r"^\s*```(?:json)?\s*|\s*```\s*$",
-                "",
-                (response.text or "").strip(),
-                flags=re.I
-            )
-
-            story = json.loads(raw)
-
-            if len(story.get("scenes", [])) != SCENE_COUNT:
-                raise ValueError(
-                    f"Story must have {SCENE_COUNT} scenes."
-                )
-
-            if not story.get("title") or not story.get("moral"):
-                raise ValueError(
-                    "Story title or moral is missing."
-                )
-
-            for scene in story["scenes"]:
-                if not scene.get("narration") or not scene.get("visual"):
-                    raise ValueError(
-                        "A scene is missing narration or visual description."
-                    )
-
-            print(
-                "Story:",
-                story["title"],
-                flush=True
-            )
-
-            return story
-
-        except Exception as exc:
-            last_error = exc
-
-            print(
-                "Story generation failed:",
-                exc,
-                flush=True
-            )
-
-            if attempt < 3:
-                time.sleep(attempt * 5)
-
-    raise RuntimeError(
-        f"Could not generate story: {last_error}"
+    draw.rounded_rectangle(
+        (35, 300, WIDTH - 35, 580),
+        radius=35,
+        fill="#12294B",
+        outline="white",
+        width=4
     )
 
+    title_font = get_font(39, bold=True)
+    button_font = get_font(32, bold=True)
+    small_font = get_font(25)
 
-def save_image_part(part, output_path):
-    inline = getattr(part, "inline_data", None)
-
-    if inline is None or not getattr(inline, "data", None):
-        return False
-
-    data = inline.data
-
-    if isinstance(data, str):
-        import base64
-        data = base64.b64decode(data)
-
-    output_path.write_bytes(data)
-
-    return True
-
-
-def generate_scene_image(client, story, scene, number, folder):
-    image_path = folder / f"scene_{number:02d}.png"
-
-    prompt = f"""
-Create one polished vertical 9:16 image for a children's story
-in a cinematic, high-quality 3D animated family-film style.
-
-Use expressive faces, detailed materials, soft cinematic lighting,
-rich colors, child-friendly composition.
-
-Story title: {story['title']}
-
-Scene visual: {scene['visual']}
-
-Include EVERY person, animal, and important object explicitly
-mentioned in this scene together in the image.
-
-Do not replace an animal with a human and do not omit characters.
-
-Keep character colors, clothing, and appearance consistent
-with the description.
-
-Show the action clearly.
-
-No text, letters, logos, or watermark.
-"""
-
-    last_error = None
-
-    for attempt in range(1, 3):
-        try:
-            print(
-                f"Generating scene image {number}/{SCENE_COUNT}...",
-                flush=True
-            )
-
-            response = client.models.generate_content(
-                model=IMAGE_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_modalities=["TEXT", "IMAGE"]
-                )
-            )
-
-            for part in response.parts:
-                if save_image_part(part, image_path):
-                    return image_path
-
-            raise RuntimeError(
-                "No image returned. Verify image model access: "
-                + IMAGE_MODEL
-            )
-
-        except Exception as exc:
-            last_error = exc
-
-            print(
-                f"Image attempt {attempt} failed:",
-                exc,
-                flush=True
-            )
-
-            if attempt == 1:
-                time.sleep(5)
-
-    raise RuntimeError(
-        f"Failed to generate scene {number}: {last_error}"
+    draw_centered(
+        draw, "कहानी अच्छी लगी?",
+        330, title_font, "white"
     )
 
-
-async def create_voice(text, audio_path):
-    tts = edge_tts.Communicate(
-        text=text,
-        voice=VOICE,
-        rate="+0%"
+    draw.rounded_rectangle(
+        (105, 410, 615, 500),
+        radius=25,
+        fill="#E62117",
+        outline="white",
+        width=3
     )
 
-    await asyncio.wait_for(
-        tts.save(str(audio_path)),
-        timeout=180
+    draw_centered(
+        draw, "SUBSCRIBE",
+        433, button_font, "white"
     )
 
-
-def get_duration(audio_path):
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path)
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30
+    draw_centered(
+        draw, "👍 LIKE     🔔 BELL",
+        520, small_font, "#FFE47A"
     )
 
-    try:
-        return max(
-            4.0,
-            float(result.stdout.strip()) + 0.4
-        )
-
-    except (ValueError, AttributeError):
-        return 6.0
-
-
-def make_scene_video(
-    image_path,
-    audio_path,
-    video_path,
-    duration
-):
-    frames = max(
-        1,
-        int(duration * FPS)
+    draw.rounded_rectangle(
+        (35, 1040, WIDTH - 35, 1195),
+        radius=25,
+        fill="#12294B",
+        outline="white",
+        width=3
     )
 
-    # Slow zoom makes the illustration feel less static.
-    zoom_filter = (
-        "zoompan=z='min(zoom+0.0005,1.08)':"
-        "x='iw/2-(iw/zoom/2)':"
-        "y='ih/2-(ih/zoom/2)':"
-        f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-        "format=yuv420p"
+    draw_centered(
+        draw,
+        "नई कहानियों के लिए जुड़े रहें!",
+        1085,
+        small_font,
+        "white"
     )
 
-    run_command(
-        [
-            "ffmpeg",
-            "-y",
-            "-loop", "1",
-            "-framerate", str(FPS),
-            "-i", str(image_path),
-            "-i", str(audio_path),
-            "-vf", zoom_filter,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-t", f"{duration:.2f}",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-shortest",
-            "-movflags", "+faststart",
-            str(video_path)
-        ],
-        timeout=900
-    )
+    image.save(path)
 
 
-def make_outro(client, folder):
-    image_path = folder / "subscribe_outro.png"
-    audio_path = folder / "subscribe_outro.mp3"
-    video_path = folder / "subscribe_outro.mp4"
-
-    prompt = """
-Vertical 9:16 cheerful cinematic 3D animated
-children's story ending image.
-
-Friendly children and cute forest animals waving goodbye,
-bright festive colors, warm lighting.
-
-Leave clear empty space in center for a subscribe message.
-
-No text, no logos, no watermark.
-"""
-
-    response = client.models.generate_content(
-        model=IMAGE_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["TEXT", "IMAGE"]
-        )
-    )
-
-    saved = False
-
-    for part in response.parts:
-        if save_image_part(part, image_path):
-            saved = True
-            break
-
-    if not saved:
-        raise RuntimeError(
-            "No image returned for subscribe outro."
-        )
-
-    asyncio.run(
-        create_voice(
-            SUBSCRIBE_TEXT,
-            audio_path
-        )
-    )
-
-    duration = get_duration(audio_path)
-
-    # Hindi subscribe message is spoken in the outro.
-    run_command(
-        [
-            "ffmpeg",
-            "-y",
-            "-loop", "1",
-            "-framerate", str(FPS),
-            "-i", str(image_path),
-            "-i", str(audio_path),
-            "-vf",
-            f"scale={WIDTH}:{HEIGHT}:"
-            "force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},format=yuv420p",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-t", f"{duration:.2f}",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-shortest",
-            "-movflags", "+faststart",
-            str(video_path)
-        ]
-    )
-
-    return video_path
-
+# ==========================================
+# COMBINE VIDEOS
+# ==========================================
 
 def combine_videos(videos, final_path):
     concat_path = final_path.parent / "concat.txt"
 
-    with concat_path.open(
-        "w",
-        encoding="utf-8"
-    ) as handle:
-
+    with concat_path.open("w", encoding="utf-8") as file:
         for video in videos:
-            handle.write(
+            file.write(
                 f"file '{video.resolve().as_posix()}'\n"
             )
 
     if MUSIC_FILE.exists():
+        print("Adding background music...", flush=True)
 
-        # Background music is mixed quietly with narration.
-        run_command(
-            [
-                "ffmpeg",
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_path),
-                "-stream_loop", "-1",
-                "-i", str(MUSIC_FILE),
-                "-filter_complex",
-                "[1:a]volume=0.12[m];"
-                "[0:a][m]amix=inputs=2:"
-                "duration=first:dropout_transition=2[a]",
-                "-map", "0:v",
-                "-map", "[a]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-shortest",
-                "-movflags", "+faststart",
-                str(final_path)
-            ],
-            timeout=1800
-        )
+        run_command([
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_path),
+            "-stream_loop", "-1",
+            "-i", str(MUSIC_FILE),
+            "-filter_complex",
+            "[1:a]volume=0.12[m];"
+            "[0:a][m]amix=inputs=2:duration=first:"
+            "dropout_transition=2[a]",
+            "-map", "0:v",
+            "-map", "[a]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            "-movflags", "+faststart",
+            str(final_path)
+        ], timeout=1800)
 
     else:
-        run_command(
-            [
-                "ffmpeg",
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_path),
-                "-c", "copy",
-                "-movflags", "+faststart",
-                str(final_path)
-            ],
-            timeout=1800
-        )
+        run_command([
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_path),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(final_path)
+        ], timeout=1800)
 
+
+# ==========================================
+# MAIN
+# ==========================================
 
 def main():
-    print("=" * 60)
-    print("KYA BACHE - AI ILLUSTRATED HINDI STORY VIDEO")
-    print("=" * 60, flush=True)
+    print("=" * 50)
+    print("KYA BACHE - FREE HINDI STORY VIDEO")
+    print("=" * 50)
 
-    check_requirements()
+    for tool in ("ffmpeg", "ffprobe"):
+        check = subprocess.run(
+            [tool, "-version"],
+            capture_output=True
+        )
+        if check.returncode != 0:
+            raise RuntimeError(
+                f"{tool} is not installed or not in PATH."
+            )
 
-    client = genai.Client(
-        api_key=os.environ["GEMINI_API_KEY"]
-    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
 
-    folder = OUTPUT_DIR / datetime.now().strftime(
-        "%Y%m%d_%H%M%S"
-    )
-
-    folder.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    story = generate_story(client)
-
-    # Add spoken subscribe message to final story scene.
-    story["scenes"][-1]["narration"] += (
-        " " + SUBSCRIBE_TEXT
-    )
-
-    story_path = folder / "story.json"
-
-    story_path.write_text(
-        json.dumps(
-            story,
-            ensure_ascii=False,
-            indent=2
-        ),
-        encoding="utf-8"
-    )
-
+    story = create_story()
     videos = []
 
-    for number, scene in enumerate(
-        story["scenes"],
-        start=1
-    ):
-
-        image_path = generate_scene_image(
-            client,
-            story,
-            scene,
-            number,
-            folder
-        )
-
-        audio_path = folder / f"voice_{number:02d}.mp3"
-
-        video_path = folder / f"scene_video_{number:02d}.mp4"
-
+    # Generate eight illustrated scenes.
+    for number, scene in enumerate(story["scenes"], start=1):
         print(
-            f"Creating Hindi narration for scene {number}...",
+            f"Creating scene {number}/{len(story['scenes'])}...",
             flush=True
         )
 
-        asyncio.run(
-            create_voice(
-                scene["narration"],
-                audio_path
-            )
+        image_path = make_scene_image(
+            scene, number, RUN_DIR
         )
+
+        audio_path = RUN_DIR / f"voice_{number:02d}.mp3"
+        video_path = RUN_DIR / f"video_{number:02d}.mp4"
+
+        asyncio.run(
+            create_voice(scene["text"], audio_path)
+        )
+
+        duration = audio_duration(audio_path)
 
         make_scene_video(
             image_path,
             audio_path,
             video_path,
-            get_duration(audio_path)
+            duration
         )
 
         videos.append(video_path)
 
-    videos.append(
-        make_outro(
-            client,
-            folder
+    # Create the visible subscribe outro.
+    print("Creating subscribe outro...", flush=True)
+
+    outro_image = RUN_DIR / "subscribe_outro.png"
+    outro_audio = RUN_DIR / "subscribe_outro.mp3"
+    outro_video = RUN_DIR / "subscribe_outro.mp4"
+
+    make_outro_image(outro_image)
+
+    asyncio.run(
+        create_voice(
+            "ऐसी और मज़ेदार कहानियों के लिए "
+            "हमारे चैनल को सब्सक्राइब करें। "
+            "वीडियो अच्छी लगी हो तो लाइक करें। धन्यवाद!",
+            outro_audio
         )
     )
 
-    final_path = folder / "daily_video.mp4"
+    duration = audio_duration(outro_audio)
 
-    print(
-        "Combining scenes and audio...",
-        flush=True
+    make_scene_video(
+        outro_image,
+        outro_audio,
+        outro_video,
+        duration
     )
 
-    combine_videos(
-        videos,
-        final_path
-    )
+    videos.append(outro_video)
 
-    if (
-        not final_path.exists()
-        or final_path.stat().st_size == 0
-    ):
-        raise RuntimeError(
-            "Final MP4 was not created."
-        )
+    # Produce a video in the run folder.
+    timestamp_video = RUN_DIR / "daily_video.mp4"
 
-    print(
-        "VIDEO CREATED:",
-        final_path,
-        flush=True
-    )
+    combine_videos(videos, timestamp_video)
 
-    print(
-        "Background music:",
-        "included"
-        if MUSIC_FILE.exists()
-        else "not added; music file missing",
-        flush=True
-    )
+    # Copy to the stable location expected by the uploader.
+    stable_video = OUTPUT_DIR / "daily_video.mp4"
 
-    print(
-        "Note: AI scene images plus camera zoom; "
-        "not full character animation.",
-        flush=True
-    )
+    run_command([
+        "ffmpeg", "-y",
+        "-i", str(timestamp_video),
+        "-c", "copy",
+        str(stable_video)
+    ], timeout=900)
+
+    print("=" * 50)
+    print("VIDEO CREATED SUCCESSFULLY")
+    print("Video:", stable_video)
+    print("Run folder:", RUN_DIR)
+    print("Gemini API used: NO")
+    print("Local cartoon illustrations: YES")
+    print("=" * 50)
 
 
 if __name__ == "__main__":
     try:
         main()
-
-    except KeyboardInterrupt:
-        print(
-            "Stopped by user.",
-            flush=True
-        )
-        raise SystemExit(1)
-
-    except Exception as exc:
-        print(
-            "ERROR:",
-            exc,
-            flush=True
-        )
+    except Exception as error:
+        print("ERROR:", error, flush=True)
         raise SystemExit(1)
