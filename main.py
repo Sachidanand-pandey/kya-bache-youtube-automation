@@ -1,566 +1,704 @@
 
-import os
 import asyncio
+import json
 import random
 import subprocess
 from pathlib import Path
-from datetime import datetime
 
-from PIL import Image, ImageDraw, ImageFont
 import edge_tts
+from PIL import Image, ImageDraw, ImageFont
 
-BASE = Path(__file__).resolve().parent
-OUTPUT = BASE / "output"
-MUSIC = BASE / "music" / "background.mp3"
+
+# ==========================================
+# KYA BACHE - VIDEO GENERATOR
+# ==========================================
+
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = BASE_DIR / "output"
+WORK_DIR = OUTPUT_DIR / "temp"
+
+STORY_VIDEO = OUTPUT_DIR / "daily_video.mp4"
+SHORT_VIDEO = OUTPUT_DIR / "daily_short.mp4"
+STORY_METADATA = OUTPUT_DIR / "story_metadata.json"
+
+STORY_WIDTH = 1280
+STORY_HEIGHT = 720
+
+SHORT_WIDTH = 720
+SHORT_HEIGHT = 1280
 
 VOICE = "hi-IN-SwaraNeural"
-FPS = 25
-
-LANDSCAPE = (1280, 720)
-PORTRAIT = (720, 1280)
-
-STORIES = [
-    {
-        "title": "चालाक खरगोश और जादुई पेड़",
-        "scenes": [
-            ("एक हरे-भरे जंगल में चिंटू नाम का खरगोश रहता था।", "rabbit"),
-            ("एक सुबह उसे एक चमकता हुआ जादुई पेड़ दिखाई दिया।", "tree"),
-            ("पेड़ ने बताया कि जंगल का झरना बंद हो गया है।", "tree"),
-            ("चिंटू ने देखा कि झरने का रास्ता पत्थरों से बंद था।", "rabbit"),
-            ("उसने अपने दोस्तों को बुलाया और सबने मिलकर मेहनत की।", "happy"),
-            ("सभी ने मिलकर पत्थर और टहनियाँ हटा दीं।", "water"),
-            ("साफ पानी फिर से बहने लगा और सभी जानवर खुश हो गए।", "happy"),
-            ("चिंटू को समझ आया कि मिलकर काम करने से बड़ी समस्या हल होती है।", "rabbit"),
-        ],
-        "moral": "सीख: मिल-जुलकर काम करने से मुश्किल आसान हो जाती है।"
-    },
-    {
-        "title": "नीली चिड़िया की मदद",
-        "scenes": [
-            ("एक गाँव में मोहन नाम का दयालु बच्चा रहता था।", "boy"),
-            ("एक दिन उसे पेड़ के नीचे एक नीली चिड़िया मिली।", "bird"),
-            ("चिड़िया थकी हुई थी और उड़ नहीं पा रही थी।", "bird"),
-            ("मोहन उसके लिए पानी लेकर आया।", "boy"),
-            ("उसने चिड़िया को सुरक्षित जगह पर आराम करने दिया।", "happy"),
-            ("कुछ देर बाद चिड़िया फिर से चहकने लगी।", "bird"),
-            ("चिड़िया ने अपने पंख फैलाए और आसमान में उड़ गई।", "bird"),
-            ("मोहन खुश था कि उसकी मदद से एक जीव को राहत मिली।", "happy"),
-        ],
-        "moral": "सीख: हमें सभी जीवों के प्रति दयालु होना चाहिए।"
-    },
-    {
-        "title": "ईमानदार बंदर",
-        "scenes": [
-            ("एक जंगल में गोलू नाम का बंदर रहता था।", "monkey"),
-            ("एक दिन उसे केले से भरी टोकरी मिली।", "banana"),
-            ("गोलू को भूख लगी थी, लेकिन उसने टोकरी नहीं रखी।", "monkey"),
-            ("वह टोकरी के मालिक को खोजने निकल पड़ा।", "monkey"),
-            ("रास्ते में उसे एक बूढ़ा हाथी परेशान दिखाई दिया।", "elephant"),
-            ("हाथी ने बताया कि टोकरी उसी की थी।", "elephant"),
-            ("गोलू ने टोकरी लौटा दी और हाथी बहुत खुश हुआ।", "happy"),
-            ("जंगल के सभी जानवरों ने गोलू की तारीफ की।", "happy"),
-        ],
-        "moral": "सीख: हमेशा ईमानदार रहना चाहिए।"
-    }
-]
-
-QUIZZES = [
-    {
-        "question": "कौन-सा पक्षी रात में जागता है?",
-        "options": "कबूतर, उल्लू या तोता?",
-        "answer": "सही जवाब है उल्लू!",
-        "kind": "bird"
-    },
-    {
-        "question": "किस जानवर की लंबी सूँड़ होती है?",
-        "options": "हाथी, खरगोश या बिल्ली?",
-        "answer": "सही जवाब है हाथी!",
-        "kind": "elephant"
-    },
-    {
-        "question": "बंदर को कौन-सा फल पसंद है?",
-        "options": "केला, प्याज या नींबू?",
-        "answer": "सही जवाब है केला!",
-        "kind": "banana"
-    },
-    {
-        "question": "जंगल का राजा किसे कहते हैं?",
-        "options": "शेर, खरगोश या चूहा?",
-        "answer": "सही जवाब है शेर!",
-        "kind": "lion"
-    },
-    {
-        "question": "रात में आसमान में क्या चमकता है?",
-        "options": "चाँद-तारे, जूता या कुर्सी?",
-        "answer": "सही जवाब है चाँद और तारे!",
-        "kind": "moon"
-    }
-]
+FPS = 24
 
 
-def run_command(command, timeout=1200):
+# ==========================================
+# CHECK REQUIRED SOFTWARE
+# ==========================================
+
+def run_command(command):
+    print("Running:", " ".join(str(x) for x in command))
+
     result = subprocess.run(
-        command, capture_output=True, text=True, timeout=timeout
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
     )
+
     if result.returncode != 0:
-        raise RuntimeError(result.stderr[-4000:] or "Command failed")
+        print(result.stderr[-4000:])
+        raise RuntimeError("Command failed: " + str(command[0]))
+
+    return result.stdout.strip()
 
 
-def get_font(size, bold=False):
-    if os.name == "nt":
-        fonts = [
-            r"C:\Windows\Fonts\NirmalaB.ttf" if bold
-            else r"C:\Windows\Fonts\Nirmala.ttf",
-            r"C:\Windows\Fonts\arialbd.ttf" if bold
-            else r"C:\Windows\Fonts\arial.ttf"
-        ]
-    else:
-        fonts = [
-            "/usr/share/fonts/truetype/noto/"
-            + ("NotoSansDevanagari-Bold.ttf" if bold
-               else "NotoSansDevanagari-Regular.ttf"),
-            "/usr/share/fonts/truetype/dejavu/"
-            + ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
-        ]
+def check_ffmpeg():
+    run_command(["ffmpeg", "-version"])
+    run_command(["ffprobe", "-version"])
 
-    for name in fonts:
-        if Path(name).exists():
+
+# ==========================================
+# FONT SETTINGS
+# ==========================================
+
+def get_font(size):
+    font_paths = [
+        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "C:/Windows/Fonts/mangal.ttf",
+        "C:/Windows/Fonts/arial.ttf"
+    ]
+
+    for font_path in font_paths:
+        if Path(font_path).exists():
             try:
-                return ImageFont.truetype(name, size)
+                return ImageFont.truetype(font_path, size)
             except OSError:
                 pass
 
     return ImageFont.load_default()
 
 
-def wrap_text(draw, text, font, max_width):
-    words = text.split()
+# ==========================================
+# DRAW TEXT
+# ==========================================
+
+def draw_centered_text(draw, text, y, font, width, fill):
+    box = draw.textbbox((0, 0), text, font=font)
+    text_width = box[2] - box[0]
+    x = (width - text_width) // 2
+
+    draw.text(
+        (x + 3, y + 3),
+        text,
+        font=font,
+        fill=(25, 25, 25)
+    )
+
+    draw.text(
+        (x, y),
+        text,
+        font=font,
+        fill=fill
+    )
+
+
+# ==========================================
+# DRAW SIMPLE CARTOON CHARACTERS
+# ==========================================
+
+def draw_character(draw, character, x, y, scale=1):
+    if character == "rabbit":
+        body_color = (245, 245, 245)
+        draw.ellipse(
+            (x - 48 * scale, y - 10 * scale,
+             x + 48 * scale, y + 100 * scale),
+            fill=body_color,
+            outline=(90, 90, 90),
+            width=3
+        )
+
+        draw.ellipse(
+            (x - 38 * scale, y - 95 * scale,
+             x - 5 * scale, y - 20 * scale),
+            fill=body_color,
+            outline=(90, 90, 90),
+            width=3
+        )
+
+        draw.ellipse(
+            (x + 5 * scale, y - 95 * scale,
+             x + 38 * scale, y - 20 * scale),
+            fill=body_color,
+            outline=(90, 90, 90),
+            width=3
+        )
+
+        draw.ellipse(
+            (x - 35 * scale, y - 45 * scale,
+             x + 35 * scale, y + 25 * scale),
+            fill=body_color,
+            outline=(90, 90, 90),
+            width=3
+        )
+
+        draw.ellipse(
+            (x - 18 * scale, y - 22 * scale,
+             x - 10 * scale, y - 14 * scale),
+            fill=(20, 20, 20)
+        )
+
+        draw.ellipse(
+            (x + 10 * scale, y - 22 * scale,
+             x + 18 * scale, y - 14 * scale),
+            fill=(20, 20, 20)
+        )
+
+        draw.ellipse(
+            (x - 6 * scale, y - 7 * scale,
+             x + 6 * scale, y + 3 * scale),
+            fill=(240, 100, 130)
+        )
+
+    elif character == "monkey":
+        draw.ellipse(
+            (x - 50 * scale, y - 10 * scale,
+             x + 50 * scale, y + 100 * scale),
+            fill=(145, 85, 45)
+        )
+
+        draw.ellipse(
+            (x - 45 * scale, y - 70 * scale,
+             x + 45 * scale, y + 20 * scale),
+            fill=(145, 85, 45)
+        )
+
+        draw.ellipse(
+            (x - 28 * scale, y - 40 * scale,
+             x + 28 * scale, y + 5 * scale),
+            fill=(240, 190, 135)
+        )
+
+        draw.ellipse(
+            (x - 23 * scale, y - 35 * scale,
+             x - 13 * scale, y - 25 * scale),
+            fill=(20, 20, 20)
+        )
+
+        draw.ellipse(
+            (x + 13 * scale, y - 35 * scale,
+             x + 23 * scale, y - 25 * scale),
+            fill=(20, 20, 20)
+        )
+
+    elif character == "bird":
+        draw.ellipse(
+            (x - 45 * scale, y - 45 * scale,
+             x + 45 * scale, y + 45 * scale),
+            fill=(55, 150, 245)
+        )
+
+        draw.polygon(
+            [
+                (x + 40 * scale, y - 5 * scale),
+                (x + 75 * scale, y + 5 * scale),
+                (x + 40 * scale, y + 15 * scale)
+            ],
+            fill=(255, 175, 20)
+        )
+
+        draw.ellipse(
+            (x - 20 * scale, y - 20 * scale,
+             x - 10 * scale, y - 10 * scale),
+            fill=(255, 255, 255)
+        )
+
+        draw.ellipse(
+            (x - 16 * scale, y - 18 * scale,
+             x - 12 * scale, y - 12 * scale),
+            fill=(20, 20, 20)
+        )
+
+    else:
+        draw.ellipse(
+            (x - 45 * scale, y - 45 * scale,
+             x + 45 * scale, y + 45 * scale),
+            fill=(255, 185, 50)
+        )
+
+
+# ==========================================
+# CREATE VIDEO SCENE IMAGE
+# ==========================================
+
+def create_scene_image(
+    filename,
+    width,
+    height,
+    title,
+    story_text,
+    character,
+    scene_number
+):
+    image = Image.new("RGB", (width, height), (145, 210, 255))
+    draw = ImageDraw.Draw(image)
+
+    # Sky
+    draw.rectangle(
+        (0, 0, width, int(height * 0.65)),
+        fill=(135, 205, 255)
+    )
+
+    # Sun
+    draw.ellipse(
+        (width - 140, 40, width - 60, 120),
+        fill=(255, 220, 70)
+    )
+
+    # Hills
+    draw.ellipse(
+        (-width // 3, int(height * 0.40),
+         width // 2, int(height * 0.85)),
+        fill=(95, 195, 95)
+    )
+
+    draw.ellipse(
+        (width // 3, int(height * 0.43),
+         width + width // 3, int(height * 0.88)),
+        fill=(65, 170, 85)
+    )
+
+    # Ground
+    draw.rectangle(
+        (0, int(height * 0.72), width, height),
+        fill=(75, 160, 70)
+    )
+
+    # Story character
+    character_y = int(height * 0.60)
+
+    if character == "tree":
+        tree_x = width // 2
+        tree_y = int(height * 0.52)
+
+        draw.rectangle(
+            (tree_x - 22, tree_y,
+             tree_x + 22, tree_y + int(height * 0.23)),
+            fill=(120, 75, 35)
+        )
+
+        draw.ellipse(
+            (tree_x - 105, tree_y - 105,
+             tree_x + 105, tree_y + 45),
+            fill=(35, 155, 65)
+        )
+
+        draw.ellipse(
+            (tree_x - 65, tree_y - 135,
+             tree_x + 65, tree_y - 5),
+            fill=(45, 180, 75)
+        )
+
+        draw.ellipse(
+            (tree_x - 20, tree_y - 65,
+             tree_x + 20, tree_y - 25),
+            fill=(255, 220, 40)
+        )
+
+    else:
+        scale = min(width / 1000, height / 1000) * 1.4
+        draw_character(
+            draw,
+            character,
+            width // 2,
+            character_y,
+            scale
+        )
+
+    # Title banner
+    draw.rounded_rectangle(
+        (20, 20, width - 20, int(height * 0.16)),
+        radius=20,
+        fill=(35, 70, 145)
+    )
+
+    draw_centered_text(
+        draw,
+        title,
+        30,
+        get_font(max(20, int(width * 0.035))),
+        width,
+        (255, 255, 255)
+    )
+
+    # Scene narration caption
+    banner_y = int(height * 0.82)
+
+    draw.rounded_rectangle(
+        (20, banner_y, width - 20, height - 18),
+        radius=18,
+        fill=(255, 255, 255)
+    )
+
+    caption_font = get_font(max(18, int(width * 0.027)))
+
+    # Split the caption into lines.
+    words = story_text.split()
     lines = []
-    current = ""
+    current_line = ""
 
     for word in words:
-        test = current + " " + word if current else word
-        width = draw.textbbox((0, 0), test, font=font)[2]
+        test_line = current_line + " " + word
 
-        if width <= max_width:
-            current = test
+        if draw.textbbox(
+            (0, 0), test_line, font=caption_font
+        )[2] > width - 80:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
         else:
-            if current:
-                lines.append(current)
-            current = word
+            current_line = test_line.strip()
 
-    if current:
-        lines.append(current)
+    if current_line:
+        lines.append(current_line)
 
-    return lines
+    line_height = max(24, int(width * 0.035))
+    start_y = banner_y + 10
 
-
-def centered(draw, text, y, font, width, color="white"):
-    box = draw.textbbox((0, 0), text, font=font)
-    x = (width - (box[2] - box[0])) // 2
-    draw.text((x, y), text, font=font, fill=color)
-
-
-def draw_character(draw, kind, width, height):
-    cx = width // 2
-    cy = int(height * 0.52)
-    unit = min(width, height) / 700
-
-    def ellipse(x1, y1, x2, y2, color):
-        draw.ellipse(
-            (int(x1), int(y1), int(x2), int(y2)),
-            fill=color
+    for line in lines[:2]:
+        draw_centered_text(
+            draw,
+            line,
+            start_y,
+            caption_font,
+            width,
+            (30, 40, 70)
         )
+        start_y += line_height
 
-    if kind == "tree":
-        draw.rectangle(
-            (cx-25*unit, cy-10*unit, cx+25*unit, cy+190*unit),
-            fill="#80502B"
-        )
-        ellipse(cx-150*unit, cy-190*unit,
-                cx+150*unit, cy+70*unit, "#258B43")
-        ellipse(cx-100*unit, cy-240*unit,
-                cx+100*unit, cy-40*unit, "#41AF58")
-        ellipse(cx-20*unit, cy-140*unit,
-                cx+10*unit, cy-110*unit, "#FFE66B")
-
-    elif kind in ("rabbit", "happy"):
-        ellipse(cx-65*unit, cy-145*unit,
-                cx-25*unit, cy-35*unit, "white")
-        ellipse(cx+25*unit, cy-145*unit,
-                cx+65*unit, cy-35*unit, "white")
-        ellipse(cx-85*unit, cy-75*unit,
-                cx+85*unit, cy+95*unit, "white")
-        ellipse(cx-55*unit, cy-45*unit,
-                cx+55*unit, cy+45*unit, "white")
-        ellipse(cx-30*unit, cy-15*unit,
-                cx-17*unit, cy-2*unit, "#222222")
-        ellipse(cx+17*unit, cy-15*unit,
-                cx+30*unit, cy-2*unit, "#222222")
-        ellipse(cx-7*unit, cy+8*unit,
-                cx+7*unit, cy+20*unit, "#F18AA2")
-
-    elif kind in ("boy", "water"):
-        ellipse(cx-65*unit, cy-125*unit,
-                cx+65*unit, cy+5*unit, "#F4BD87")
-        draw.pieslice(
-            (cx-70*unit, cy-145*unit,
-             cx+70*unit, cy-20*unit),
-            180, 360, fill="#51311F"
-        )
-        ellipse(cx-35*unit, cy-75*unit,
-                cx-22*unit, cy-62*unit, "#222222")
-        ellipse(cx+22*unit, cy-75*unit,
-                cx+35*unit, cy-62*unit, "#222222")
-        draw.rounded_rectangle(
-            (cx-70*unit, cy+5*unit,
-             cx+70*unit, cy+170*unit),
-            radius=max(1, int(15*unit)), fill="#F04C4C"
-        )
-
-    elif kind == "bird":
-        ellipse(cx-105*unit, cy-40*unit,
-                cx+45*unit, cy+60*unit, "#2188F5")
-        ellipse(cx+5*unit, cy-105*unit,
-                cx+95*unit, cy-15*unit, "#2188F5")
-        ellipse(cx+40*unit, cy-75*unit,
-                cx+57*unit, cy-58*unit, "white")
-        ellipse(cx+46*unit, cy-70*unit,
-                cx+54*unit, cy-62*unit, "#222222")
-        draw.polygon(
-            [(cx+85*unit, cy-65*unit),
-             (cx+125*unit, cy-50*unit),
-             (cx+85*unit, cy-35*unit)],
-            fill="#FFB52E"
-        )
-
-    elif kind == "monkey":
-        ellipse(cx-100*unit, cy-90*unit,
-                cx+100*unit, cy+110*unit, "#A96935")
-        ellipse(cx-75*unit, cy-150*unit,
-                cx+75*unit, cy+5*unit, "#A96935")
-        ellipse(cx-45*unit, cy-95*unit,
-                cx-28*unit, cy-78*unit, "white")
-        ellipse(cx+28*unit, cy-95*unit,
-                cx+45*unit, cy-78*unit, "white")
-
-    elif kind == "elephant":
-        ellipse(cx-150*unit, cy-75*unit,
-                cx+125*unit, cy+105*unit, "#A6AEB9")
-        ellipse(cx-100*unit, cy-145*unit,
-                cx+100*unit, cy+35*unit, "#A6AEB9")
-        ellipse(cx-145*unit, cy-125*unit,
-                cx-45*unit, cy-15*unit, "#8795A6")
-        draw.line(
-            (cx+65*unit, cy-35*unit,
-             cx+90*unit, cy+45*unit,
-             cx+65*unit, cy+75*unit),
-            fill="#A6AEB9", width=max(10, int(35*unit))
-        )
-
-    elif kind == "banana":
-        draw.arc(
-            (cx-130*unit, cy-130*unit,
-             cx+130*unit, cy+150*unit),
-            10, 170, fill="#FFDA36",
-            width=max(12, int(35*unit))
-        )
-
-    elif kind == "lion":
-        ellipse(cx-150*unit, cy-150*unit,
-                cx+150*unit, cy+150*unit, "#C67A27")
-        ellipse(cx-100*unit, cy-100*unit,
-                cx+100*unit, cy+100*unit, "#E7B16A")
-        ellipse(cx-45*unit, cy-35*unit,
-                cx-25*unit, cy-15*unit, "#222222")
-        ellipse(cx+25*unit, cy-35*unit,
-                cx+45*unit, cy-15*unit, "#222222")
-
-    elif kind == "moon":
-        ellipse(cx-110*unit, cy-110*unit,
-                cx+110*unit, cy+110*unit, "#FFF0A6")
-        ellipse(cx-30*unit, cy-145*unit,
-                cx+150*unit, cy+55*unit, "#91DFFF")
-        for dx, dy in [(-150, -120), (145, -75), (-110, 140)]:
-            ellipse(cx+dx*unit, cy+dy*unit,
-                    cx+(dx+15)*unit, cy+(dy+15)*unit, "white")
-
-def make_scene(text, kind, number, label, size, folder):
-    width, height = size
-    image = Image.new("RGB", size, "#91DFFF")
-    draw = ImageDraw.Draw(image)
-
-    # Colorful landscape or portrait background.
-    draw.ellipse(
-        (width*.78, height*.05, width*.92, height*.22),
-        fill="#FFD94D"
-    )
-    draw.ellipse(
-        (-width*.18, height*.38, width*.48, height*.82),
-        fill="#6BC775"
-    )
-    draw.ellipse(
-        (width*.35, height*.36, width*1.15, height*.82),
-        fill="#339C52"
-    )
-    draw.rectangle(
-        (0, height*.68, width, height),
-        fill="#4CAF50"
-    )
-
-    draw_character(draw, kind, width, height)
-
-    margin = int(width*.035)
-    header_height = int(height*.15)
-
-    draw.rounded_rectangle(
-        (margin, margin, width-margin, margin+header_height),
-        radius=20, fill="#173A6C", outline="white", width=3
-    )
-
-    centered(
-        draw, label, margin+int(header_height*.15),
-        get_font(int(width*.035), True), width
-    )
-    centered(
-        draw, f"दृश्य {number}", margin+int(header_height*.60),
-        get_font(int(width*.025)), width, "#FFE47A"
-    )
-
-    box_height = int(height*.27)
-    bottom = height-int(height*.035)
-    top = bottom-box_height
-
-    draw.rounded_rectangle(
-        (margin, top, width-margin, bottom),
-        radius=22, fill="#173A6C", outline="white", width=3
-    )
-
-    text_font = get_font(int(width*.032))
-    lines = wrap_text(draw, text, text_font, width-margin*4)
-    line_height = int(width*.044)
-    y = top+int(box_height*.15)
-
-    for line in lines[:5]:
-        centered(draw, line, y, text_font, width)
-        y += line_height
-
-    path = folder/f"scene_{number:02d}.png"
-    image.save(path)
-    return path
+    image.save(filename)
 
 
-def make_outro(folder, size, short=False):
-    width, height = size
-    image = Image.new("RGB", size, "#173A6C")
-    draw = ImageDraw.Draw(image)
+# ==========================================
+# STORY LIBRARY
+# ==========================================
 
-    draw.ellipse(
-        (width*.78, height*.05, width*.92, height*.20),
-        fill="#FFD94D"
-    )
-    draw.ellipse(
-        (-width*.1, height*.45, width*.5, height*.85),
-        fill="#6BC775"
-    )
-    draw.rectangle(
-        (0, height*.70, width, height),
-        fill="#4CAF50"
-    )
-
-    draw_character(draw, "happy", width, height)
-
-    top = int(height*.25)
-    draw.rounded_rectangle(
-        (width*.07, top, width*.93, top+height*.28),
-        radius=25, fill="#13294B", outline="white", width=4
-    )
-
-    heading = "सवाल पसंद आया?" if short else "कहानी अच्छी लगी?"
-    centered(
-        draw, heading, top+int(height*.04),
-        get_font(int(width*.055), True), width
-    )
-
-    button_y = top+int(height*.13)
-    draw.rounded_rectangle(
-        (width*.18, button_y, width*.82, button_y+height*.09),
-        radius=22, fill="#E62117", outline="white", width=3
-    )
-    centered(
-        draw, "SUBSCRIBE", button_y+int(height*.02),
-        get_font(int(width*.05), True), width
-    )
-    centered(
-        draw, "LIKE  •  SHARE  •  BELL",
-        button_y+int(height*.11),
-        get_font(int(width*.032), True), width, "#FFE47A"
-    )
-
-    path = folder/("short_subscribe.png" if short else "story_subscribe.png")
-    image.save(path)
-    return path
-
-
-async def create_voice(text, path):
-    voice = edge_tts.Communicate(
-        text=text, voice=VOICE, rate="+0%"
-    )
-    await asyncio.wait_for(voice.save(str(path)), timeout=180)
-
-
-def duration_of(path):
-    result = subprocess.run(
-        [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(path)
+STORIES = [
+    {
+        "title": "जादुई पेड़ का रहस्य",
+        "character": "rabbit",
+        "scenes": [
+            "एक दिन खरगोश को जंगल में एक रहस्यमयी पेड़ मिला।",
+            "पेड़ पर चमकते फल थे, लेकिन खरगोश ने उन्हें नहीं तोड़ा।",
+            "तभी एक छोटी चिड़िया ने बताया कि पेड़ प्यासा है।",
+            "खरगोश ने पेड़ की जड़ों में पानी डाला।",
+            "पेड़ पर मीठे फल उग आए और सभी जानवर खुश हो गए।"
         ],
-        capture_output=True, text=True, timeout=30
+        "moral": "सीख: प्रकृति की देखभाल करना अच्छी बात है।"
+    },
+    {
+        "title": "ईमानदार बंदर",
+        "character": "monkey",
+        "scenes": [
+            "एक बंदर को जंगल में आमों से भरी टोकरी मिली।",
+            "वह आम खाना चाहता था, लेकिन उसने मालिक को ढूँढा।",
+            "थोड़ी दूर उसे एक भूखा खरगोश दिखाई दिया।",
+            "बंदर ने टोकरी खरगोश को लौटा दी।",
+            "खरगोश ने खुशी से आम सबके साथ बाँट लिए।"
+        ],
+        "moral": "सीख: ईमानदारी और बाँटना अच्छी आदतें हैं।"
+    },
+    {
+        "title": "नीली चिड़िया की मदद",
+        "character": "bird",
+        "scenes": [
+            "एक छोटी नीली चिड़िया बारिश में रास्ता भटक गई।",
+            "वह पेड़ के नीचे बैठकर अपने घर को याद करने लगी।",
+            "एक दयालु खरगोश ने उसे सुरक्षित रास्ता दिखाया।",
+            "चिड़िया खुशी से उड़कर अपने घोंसले पहुँची।",
+            "अगले दिन चिड़िया अपने नए दोस्त से मिलने आई।"
+        ],
+        "moral": "सीख: दूसरों की मदद करने से दोस्ती बढ़ती है।"
+    }
+]
+
+
+# ==========================================
+# QUIZ LIBRARY
+# ==========================================
+
+QUIZZES = [
+    {
+        "question": "कौन सा जानवर जंगल का राजा कहलाता है?",
+        "options": ["हाथी", "शेर", "खरगोश"],
+        "answer": "शेर",
+        "fact": "शेर को जंगल का राजा कहा जाता है।"
+    },
+    {
+        "question": "कौन सा फल पीला होता है?",
+        "options": ["केला", "अंगूर", "तरबूज"],
+        "answer": "केला",
+        "fact": "केला एक लोकप्रिय पीला फल है।"
+    },
+    {
+        "question": "रात में आसमान में क्या चमकता है?",
+        "options": ["चाँद", "कुर्सी", "जूता"],
+        "answer": "चाँद",
+        "fact": "चाँद रात के आसमान में दिखाई दे सकता है।"
+    }
+]
+
+
+# ==========================================
+# CREATE HINDI AUDIO
+# ==========================================
+
+async def create_audio(text, filename):
+    communication = edge_tts.Communicate(
+        text=text,
+        voice=VOICE,
+        rate="-5%"
     )
 
-    if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError(f"Could not read audio duration: {path}")
-
-    return max(3.5, float(result.stdout.strip())+0.4)
+    await communication.save(str(filename))
 
 
-def make_clip(image, audio, video, duration, size):
-    width, height = size
-    frames = max(1, int(duration*FPS))
+def get_audio_duration(filename):
+    duration = run_command([
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(filename)
+    ])
+
+    return float(duration)
+
+
+# ==========================================
+# BUILD VIDEO FROM SCENES
+# ==========================================
+
+def create_scene_video(image_path, audio_path, output_path):
+    duration = get_audio_duration(audio_path) + 0.4
 
     run_command([
-        "ffmpeg", "-y",
-        "-loop", "1", "-framerate", str(FPS),
-        "-i", str(image), "-i", str(audio),
-        "-vf",
-        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},"
-        f"zoompan=z='min(zoom+0.00025,1.04)':d={frames}:"
-        f"s={width}x{height}:fps={FPS},format=yuv420p",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-t", f"{duration:.2f}",
-        "-c:a", "aac", "-b:a", "128k",
-        "-shortest", "-movflags", "+faststart", str(video)
+        "ffmpeg",
+        "-y",
+        "-loop", "1",
+        "-framerate", str(FPS),
+        "-i", str(image_path),
+        "-i", str(audio_path),
+        "-t", str(duration),
+        "-vf", (
+            "scale=1280:720:force_original_aspect_ratio=decrease,"
+            "pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
+            "format=yuv420p"
+        ),
+        "-r", str(FPS),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "24",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        str(output_path)
     ])
 
 
-def combine(clips, destination):
-    concat = destination.parent/(destination.stem+"_concat.txt")
+def create_short_scene_video(image_path, audio_path, output_path):
+    duration = get_audio_duration(audio_path) + 0.4
 
-    with concat.open("w", encoding="utf-8") as file:
-        for clip in clips:
-            file.write(f"file '{clip.resolve().as_posix()}'\n")
-
-    if MUSIC.exists():
-        run_command([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0", "-i", str(concat),
-            "-stream_loop", "-1", "-i", str(MUSIC),
-            "-filter_complex",
-            "[1:a]volume=0.10[m];"
-            "[0:a][m]amix=inputs=2:duration=first:"
-            "dropout_transition=2[a]",
-            "-map", "0:v", "-map", "[a]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart", str(destination)
-        ])
-    else:
-        run_command([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0", "-i", str(concat),
-            "-c", "copy", "-movflags", "+faststart", str(destination)
-        ])
-
-
-def build_video(scenes, folder, prefix, label, size, short=False):
-    clips = []
-
-    for number, (text, kind) in enumerate(scenes, start=1):
-        print(f"{prefix}: scene {number}/{len(scenes)}", flush=True)
-
-        image = make_scene(
-            text, kind, number, label, size, folder
-        )
-        audio = folder/f"{prefix}_voice_{number:02d}.mp3"
-        clip = folder/f"{prefix}_clip_{number:02d}.mp4"
-
-        asyncio.run(create_voice(text, audio))
-        make_clip(image, audio, clip, duration_of(audio), size)
-        clips.append(clip)
-
-    outro_image = make_outro(folder, size, short)
-    outro_audio = folder/f"{prefix}_outro.mp3"
-    outro_clip = folder/f"{prefix}_outro.mp4"
-
-    if short:
-        outro_text = "ऐसे मज़ेदार सवालों के लिए चैनल को सब्सक्राइब करें।"
-    else:
-        outro_text = (
-            "ऐसी और मज़ेदार कहानियों के लिए हमारे चैनल को "
-            "सब्सक्राइब करें। वीडियो अच्छी लगी हो तो लाइक करें।"
-        )
-
-    asyncio.run(create_voice(outro_text, outro_audio))
-    make_clip(
-        outro_image, outro_audio, outro_clip,
-        duration_of(outro_audio), size
-    )
-    clips.append(outro_clip)
-
-    result = folder/f"{prefix}.mp4"
-    combine(clips, result)
-    return result
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-loop", "1",
+        "-framerate", str(FPS),
+        "-i", str(image_path),
+        "-i", str(audio_path),
+        "-t", str(duration),
+        "-vf", (
+            "scale=720:1280:force_original_aspect_ratio=decrease,"
+            "pad=720:1280:(ow-iw)/2:(oh-ih)/2,"
+            "format=yuv420p"
+        ),
+        "-r", str(FPS),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "24",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-shortest",
+        str(output_path)
+    ])
 
 
-def main():
-    for tool in ("ffmpeg", "ffprobe"):
-        check = subprocess.run([tool, "-version"], capture_output=True)
-        if check.returncode != 0:
-            raise RuntimeError(f"{tool} is not installed or not on PATH.")
+def join_videos(video_files, output_file):
+    list_file = WORK_DIR / "concat_list.txt"
 
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    folder = OUTPUT/datetime.now().strftime("%Y%m%d_%H%M%S")
-    folder.mkdir(parents=True, exist_ok=True)
+    with list_file.open("w", encoding="utf-8") as file:
+        for video in video_files:
+            escaped_path = str(video.resolve()).replace("'", "'\\''")
+            file.write("file '" + escaped_path + "'\n")
 
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(list_file),
+        "-c", "copy",
+        str(output_file)
+    ])
+
+
+# ==========================================
+# GENERATE FULL LANDSCAPE STORY
+# ==========================================
+
+async def generate_story():
     story = random.choice(STORIES)
+
+    scene_videos = []
+
+    for index, scene_text in enumerate(story["scenes"]):
+        print("Creating story scene", index + 1)
+
+        image_path = WORK_DIR / ("story_image_" + str(index) + ".png")
+        audio_path = WORK_DIR / ("story_audio_" + str(index) + ".mp3")
+        video_path = WORK_DIR / ("story_scene_" + str(index) + ".mp4")
+
+        create_scene_image(
+            image_path,
+            STORY_WIDTH,
+            STORY_HEIGHT,
+            story["title"],
+            scene_text,
+            story["character"],
+            index
+        )
+
+        await create_audio(scene_text, audio_path)
+        create_scene_video(image_path, audio_path, video_path)
+
+        scene_videos.append(video_path)
+
+    # Add the moral as the final scene.
+    moral_image = WORK_DIR / "story_moral.png"
+    moral_audio = WORK_DIR / "story_moral.mp3"
+    moral_video = WORK_DIR / "story_moral.mp4"
+
+    create_scene_image(
+        moral_image,
+        STORY_WIDTH,
+        STORY_HEIGHT,
+        story["title"],
+        story["moral"],
+        story["character"],
+        99
+    )
+
+    await create_audio(story["moral"], moral_audio)
+    create_scene_video(moral_image, moral_audio, moral_video)
+
+    scene_videos.append(moral_video)
+
+    join_videos(scene_videos, STORY_VIDEO)
+
+    with STORY_METADATA.open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "title": story["title"],
+                "moral": story["moral"],
+                "character": story["character"]
+            },
+            file,
+            ensure_ascii=False,
+            indent=2
+        )
+
+    print("Full story created:", STORY_VIDEO)
+
+
+# ==========================================
+# GENERATE PORTRAIT QUIZ SHORT
+# ==========================================
+
+async def generate_quiz_short():
     quiz = random.choice(QUIZZES)
 
-    print("Selected story:", story["title"], flush=True)
-
-    story_scenes = list(story["scenes"])
-    story_scenes.append((story["moral"], "happy"))
-
-    # Normal video: native landscape 16:9.
-    story_file = build_video(
-        story_scenes, folder, "story",
-        story["title"], LANDSCAPE, short=False
-    )
-    (OUTPUT/"daily_video.mp4").write_bytes(story_file.read_bytes())
-
-    # Short: separate quiz, native portrait 9:16.
-    quiz_scenes = [
-        (quiz["question"], quiz["kind"]),
-        (quiz["options"], quiz["kind"]),
-        ("सोचने के लिए तीन सेकंड हैं!", quiz["kind"]),
-        (quiz["answer"], quiz["kind"])
+    short_scenes = [
+        (
+            "आज का मज़ेदार सवाल!",
+            quiz["question"]
+        ),
+        (
+            "तीन विकल्पों में से चुनें",
+            "पहला: " + quiz["options"][0]
+            + ". दूसरा: " + quiz["options"][1]
+            + ". तीसरा: " + quiz["options"][2]
+        ),
+        (
+            "सही जवाब है!",
+            quiz["answer"] + "। " + quiz["fact"]
+        )
     ]
 
-    short_file = build_video(
-        quiz_scenes, folder, "short",
-        "आज का मज़ेदार सवाल", PORTRAIT, short=True
-    )
-    (OUTPUT/"daily_short.mp4").write_bytes(short_file.read_bytes())
+    scene_videos = []
 
-    print("SUCCESS")
-    print("Landscape story:", OUTPUT/"daily_video.mp4")
-    print("Portrait quiz Short:", OUTPUT/"daily_short.mp4")
+    for index, scene in enumerate(short_scenes):
+        heading, narration = scene
+
+        image_path = WORK_DIR / ("quiz_image_" + str(index) + ".png")
+        audio_path = WORK_DIR / ("quiz_audio_" + str(index) + ".mp3")
+        video_path = WORK_DIR / ("quiz_scene_" + str(index) + ".mp4")
+
+        create_scene_image(
+            image_path,
+            SHORT_WIDTH,
+            SHORT_HEIGHT,
+            heading,
+            narration,
+            "bird",
+            index
+        )
+
+        await create_audio(narration, audio_path)
+        create_short_scene_video(image_path, audio_path, video_path)
+
+        scene_videos.append(video_path)
+
+    join_videos(scene_videos, SHORT_VIDEO)
+
+    print("Quiz Short created:", SHORT_VIDEO)
+
+
+# ==========================================
+# MAIN
+# ==========================================
+
+async def main():
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+    check_ffmpeg()
+
+    await generate_story()
+    await generate_quiz_short()
+
+    if not STORY_VIDEO.exists() or STORY_VIDEO.stat().st_size == 0:
+        raise RuntimeError("Story video was not generated.")
+
+    if not SHORT_VIDEO.exists() or SHORT_VIDEO.stat().st_size == 0:
+        raise RuntimeError("Quiz Short was not generated.")
+
+    print("================================")
+    print("Kya Bache video generation done.")
+    print("Story:", STORY_VIDEO)
+    print("Short:", SHORT_VIDEO)
+    print("================================")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print("ERROR:", error, flush=True)
-        raise SystemExit(1)
+    asyncio.run(main())
