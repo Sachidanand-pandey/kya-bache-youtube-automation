@@ -40,15 +40,60 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Debug project files
+        run: |
+          echo "Current directory:"
+          pwd
+
+          echo "Repository files:"
+          ls -la
+
+          echo "Checking main.py:"
+          if [ -f main.py ]; then
+            wc -l main.py
+            head -n 20 main.py
+          else
+            echo "ERROR: main.py not found"
+            exit 1
+          fi
+
+          echo "Checking uploader:"
+          ls -la output || true
+
+          echo "Checking Python syntax:"
+          python -m py_compile main.py
+
       - name: Generate full story and separate quiz Short
         run: |
-          python main.py
+          python -u main.py
 
       - name: Verify generated videos
         run: |
-          test -s output/daily_video.mp4
-          test -s output/daily_short.mp4
-          ls -lh output/daily_video.mp4 output/daily_short.mp4
+          echo "Checking generated video files..."
+          ls -lh output/ || true
+
+          if [ ! -s output/daily_video.mp4 ]; then
+            echo "ERROR: output/daily_video.mp4 is missing or empty"
+            exit 1
+          fi
+
+          if [ ! -s output/daily_short.mp4 ]; then
+            echo "ERROR: output/daily_short.mp4 is missing or empty"
+            exit 1
+          fi
+
+          echo "Checking video dimensions..."
+          ffprobe -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height \
+            -of default=noprint_wrappers=1 \
+            output/daily_video.mp4
+
+          ffprobe -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height \
+            -of default=noprint_wrappers=1 \
+            output/daily_short.mp4
 
       - name: Upload both videos to YouTube
         env:
@@ -56,4 +101,4 @@ jobs:
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: |
-          python output/upload_video.py
+          python -u output/upload_video.py
