@@ -1,5 +1,4 @@
 
-import json
 import os
 from pathlib import Path
 
@@ -8,111 +7,45 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-
-# ==========================================
-# KYA BACHE - YOUTUBE VIDEO UPLOADER
-# ==========================================
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = BASE_DIR / "output"
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-CLIENT_ID = os.environ.get("YOUTUBE_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("YOUTUBE_CLIENT_SECRET")
-REFRESH_TOKEN = os.environ.get("YOUTUBE_REFRESH_TOKEN")
-
-
-def get_latest_video():
-    """Find the newest generated video."""
-
-    videos = list(OUTPUT_DIR.glob("*/daily_video.mp4"))
-
-    if not videos:
-        raise FileNotFoundError(
-            "No generated video found in output/<folder>/daily_video.mp4"
-        )
-
-    return max(videos, key=lambda path: path.stat().st_mtime)
-
-
-def get_story_title(video_file):
-    """Read the story title from the matching story.json when available."""
-
-    story_file = video_file.parent / "story.json"
-
-    if story_file.exists():
-        try:
-            with open(story_file, "r", encoding="utf-8") as file:
-                story = json.load(file)
-
-            if isinstance(story, dict) and story.get("title"):
-                return str(story["title"]).strip()
-        except (OSError, json.JSONDecodeError):
-            print("Warning: Could not read story.json title.")
-
-    return "Hindi Moral Story for Kids | Kya Bache"
-
 
 def get_youtube_service():
-    """Authenticate using GitHub Actions OAuth secrets."""
+    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
-    if not CLIENT_ID or not CLIENT_SECRET or not REFRESH_TOKEN:
-        raise RuntimeError(
-            "Missing YouTube OAuth secrets. Configure "
-            "YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, and "
-            "YOUTUBE_REFRESH_TOKEN in GitHub Actions."
-        )
+    if not client_id or not client_secret or not refresh_token:
+        raise RuntimeError("Missing YouTube OAuth secrets.")
 
     credentials = Credentials(
         token=None,
-        refresh_token=REFRESH_TOKEN,
+        refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
+        client_id=client_id,
+        client_secret=client_secret,
         scopes=SCOPES
     )
 
     credentials.refresh(Request())
 
-    return build("youtube", "v3", credentials=credentials)
+    return build(
+        "youtube",
+        "v3",
+        credentials=credentials
+    )
 
 
-def upload_video():
-    """Upload the latest generated story as a public video."""
+def upload_video(youtube, path, title, description, tags):
+    if not path.exists():
+        raise FileNotFoundError(f"Video not found: {path}")
 
-    video_file = get_latest_video()
-    story_title = get_story_title(video_file)
-
-    title = f"{story_title} | Hindi Kids Story"
-    title = title[:100]
-
-    description = """
-Enjoy this Hindi children's story from Kya Bache!
-
-Watch our stories for children, friendship, kindness,
-good habits, and valuable life lessons.
-
-Subscribe to Kya Bache for more Hindi stories!
-
-#HindiKahani #MoralStories #KidsStories
-""".strip()
-
-    tags = [
-        "Hindi Kahani",
-        "Hindi Moral Stories",
-        "Kids Stories",
-        "Kya Bache",
-        "Hindi Story",
-        "Hindi Stories for Kids"
-    ]
-
-    print("Connecting to YouTube...")
-    youtube = get_youtube_service()
-
-    video_metadata = {
+    body = {
         "snippet": {
-            "title": title,
+            "title": title[:100],
             "description": description,
             "tags": tags,
             "categoryId": "22",
@@ -125,7 +58,7 @@ Subscribe to Kya Bache for more Hindi stories!
     }
 
     media = MediaFileUpload(
-        str(video_file),
+        str(path),
         mimetype="video/mp4",
         chunksize=5 * 1024 * 1024,
         resumable=True
@@ -133,13 +66,11 @@ Subscribe to Kya Bache for more Hindi stories!
 
     request = youtube.videos().insert(
         part="snippet,status",
-        body=video_metadata,
+        body=body,
         media_body=media
     )
 
-    print("Uploading video:", video_file.name)
-    print("Title:", title)
-    print("Requested visibility: Public")
+    print("Uploading:", path.name, flush=True)
 
     response = None
 
@@ -147,16 +78,57 @@ Subscribe to Kya Bache for more Hindi stories!
         status, response = request.next_chunk()
 
         if status:
-            print(f"Upload progress: {int(status.progress() * 100)}%")
+            print(
+                "Upload progress:",
+                int(status.progress() * 100),
+                "%",
+                flush=True
+            )
 
     video_id = response["id"]
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    url = f"https://www.youtube.com/watch?v={video_id}"
 
-    print("\nUpload completed successfully!")
-    print("Video URL:", video_url)
-    print("Requested visibility: Public")
-    print("Audience setting: Made for kids")
+    print("Uploaded successfully:", url, flush=True)
+    return url
+
+
+def main():
+    vertical_file = OUTPUT_DIR / "daily_video.mp4"
+    landscape_file = OUTPUT_DIR / "daily_video_landscape.mp4"
+
+    youtube = get_youtube_service()
+
+    tags = [
+        "Kya Bache",
+        "Hindi Kahani",
+        "Hindi Moral Stories",
+        "Kids Stories",
+        "Hindi Story"
+    ]
+
+    short_url = upload_video(
+        youtube,
+        vertical_file,
+        "नीली चिड़िया की कहानी | Hindi Story #Shorts",
+        "बच्चों के लिए प्यारी हिंदी कहानी। "
+        "ऐसी और कहानियों के लिए चैनल को सब्सक्राइब करें। "
+        "#Shorts #HindiKahani #KidsStories",
+        tags + ["Shorts"]
+    )
+
+    print("VERTICAL VIDEO URL:", short_url, flush=True)
+
+    landscape_url = upload_video(
+        youtube,
+        landscape_file,
+        "नीली चिड़िया की पूरी कहानी | Hindi Kids Story",
+        "बच्चों के लिए पूरी हिंदी कहानी और सीख। "
+        "नई कहानियों के लिए Kya Bache को सब्सक्राइब करें।",
+        tags + ["Full Story"]
+    )
+
+    print("LANDSCAPE VIDEO URL:", landscape_url, flush=True)
 
 
 if __name__ == "__main__":
-    upload_video()
+    main()
