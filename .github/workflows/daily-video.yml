@@ -47,6 +47,8 @@ jobs:
       - name: Generate fresh Hindi story video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_TEXT_MODEL: gemini-3.8-flash
+          GEMINI_IMAGE_MODEL: gemini-nano-banana-2.1
         run: python main.py
 
       - name: Upload video publicly to YouTube
