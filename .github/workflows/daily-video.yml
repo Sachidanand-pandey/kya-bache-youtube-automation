@@ -1,11 +1,13 @@
 
-name: Kya Bache Daily AI Video
+name: Kya Bache Daily Video Automation
 
 on:
   workflow_dispatch:
+
   schedule:
     # 6:00 AM IST = 00:30 UTC
     - cron: "30 0 * * *"
+
     # 6:00 PM IST = 12:30 UTC
     - cron: "30 12 * * *"
 
@@ -22,38 +24,58 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Step 1: Download repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Step 2: Install Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
+      # Step 3: Install FFmpeg and Hindi fonts
       - name: Install FFmpeg and Hindi fonts
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-core
 
+      # Step 4: Verify FFmpeg
+      - name: Verify FFmpeg
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      # Step 5: Install Python dependencies
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Hindi font
+      # Step 6: Generate complete vertical and landscape videos
+      - name: Generate both complete videos
         run: |
-          test -f /usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
+          python main.py
 
-      - name: Generate fresh Hindi story video
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_TEXT_MODEL: gemini-3.8-flash
-          GEMINI_IMAGE_MODEL: gemini-nano-banana-2.1
-        run: python main.py
+      # Step 7: Verify both generated videos
+      - name: Verify generated videos
+        run: |
+          test -s output/daily_video.mp4
+          test -s output/daily_video_landscape.mp4
+          ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            output/daily_video.mp4
+          ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            output/daily_video_landscape.mp4
 
-      - name: Upload video publicly to YouTube
+      # Step 8: Upload both complete videos to YouTube
+      - name: Upload both videos to YouTube
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: python output/upload_video.py
+        run: |
+          python output/upload_video.py
