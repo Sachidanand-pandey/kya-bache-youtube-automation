@@ -284,3 +284,283 @@ def draw_character(draw, kind, width, height):
         for dx, dy in [(-150, -120), (145, -75), (-110, 140)]:
             ellipse(cx+dx*unit, cy+dy*unit,
                     cx+(dx+15)*unit, cy+(dy+15)*unit, "white")
+
+def make_scene(text, kind, number, label, size, folder):
+    width, height = size
+    image = Image.new("RGB", size, "#91DFFF")
+    draw = ImageDraw.Draw(image)
+
+    # Colorful landscape or portrait background.
+    draw.ellipse(
+        (width*.78, height*.05, width*.92, height*.22),
+        fill="#FFD94D"
+    )
+    draw.ellipse(
+        (-width*.18, height*.38, width*.48, height*.82),
+        fill="#6BC775"
+    )
+    draw.ellipse(
+        (width*.35, height*.36, width*1.15, height*.82),
+        fill="#339C52"
+    )
+    draw.rectangle(
+        (0, height*.68, width, height),
+        fill="#4CAF50"
+    )
+
+    draw_character(draw, kind, width, height)
+
+    margin = int(width*.035)
+    header_height = int(height*.15)
+
+    draw.rounded_rectangle(
+        (margin, margin, width-margin, margin+header_height),
+        radius=20, fill="#173A6C", outline="white", width=3
+    )
+
+    centered(
+        draw, label, margin+int(header_height*.15),
+        get_font(int(width*.035), True), width
+    )
+    centered(
+        draw, f"दृश्य {number}", margin+int(header_height*.60),
+        get_font(int(width*.025)), width, "#FFE47A"
+    )
+
+    box_height = int(height*.27)
+    bottom = height-int(height*.035)
+    top = bottom-box_height
+
+    draw.rounded_rectangle(
+        (margin, top, width-margin, bottom),
+        radius=22, fill="#173A6C", outline="white", width=3
+    )
+
+    text_font = get_font(int(width*.032))
+    lines = wrap_text(draw, text, text_font, width-margin*4)
+    line_height = int(width*.044)
+    y = top+int(box_height*.15)
+
+    for line in lines[:5]:
+        centered(draw, line, y, text_font, width)
+        y += line_height
+
+    path = folder/f"scene_{number:02d}.png"
+    image.save(path)
+    return path
+
+
+def make_outro(folder, size, short=False):
+    width, height = size
+    image = Image.new("RGB", size, "#173A6C")
+    draw = ImageDraw.Draw(image)
+
+    draw.ellipse(
+        (width*.78, height*.05, width*.92, height*.20),
+        fill="#FFD94D"
+    )
+    draw.ellipse(
+        (-width*.1, height*.45, width*.5, height*.85),
+        fill="#6BC775"
+    )
+    draw.rectangle(
+        (0, height*.70, width, height),
+        fill="#4CAF50"
+    )
+
+    draw_character(draw, "happy", width, height)
+
+    top = int(height*.25)
+    draw.rounded_rectangle(
+        (width*.07, top, width*.93, top+height*.28),
+        radius=25, fill="#13294B", outline="white", width=4
+    )
+
+    heading = "सवाल पसंद आया?" if short else "कहानी अच्छी लगी?"
+    centered(
+        draw, heading, top+int(height*.04),
+        get_font(int(width*.055), True), width
+    )
+
+    button_y = top+int(height*.13)
+    draw.rounded_rectangle(
+        (width*.18, button_y, width*.82, button_y+height*.09),
+        radius=22, fill="#E62117", outline="white", width=3
+    )
+    centered(
+        draw, "SUBSCRIBE", button_y+int(height*.02),
+        get_font(int(width*.05), True), width
+    )
+    centered(
+        draw, "LIKE  •  SHARE  •  BELL",
+        button_y+int(height*.11),
+        get_font(int(width*.032), True), width, "#FFE47A"
+    )
+
+    path = folder/("short_subscribe.png" if short else "story_subscribe.png")
+    image.save(path)
+    return path
+
+
+async def create_voice(text, path):
+    voice = edge_tts.Communicate(
+        text=text, voice=VOICE, rate="+0%"
+    )
+    await asyncio.wait_for(voice.save(str(path)), timeout=180)
+
+
+def duration_of(path):
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path)
+        ],
+        capture_output=True, text=True, timeout=30
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError(f"Could not read audio duration: {path}")
+
+    return max(3.5, float(result.stdout.strip())+0.4)
+
+
+def make_clip(image, audio, video, duration, size):
+    width, height = size
+    frames = max(1, int(duration*FPS))
+
+    run_command([
+        "ffmpeg", "-y",
+        "-loop", "1", "-framerate", str(FPS),
+        "-i", str(image), "-i", str(audio),
+        "-vf",
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},"
+        f"zoompan=z='min(zoom+0.00025,1.04)':d={frames}:"
+        f"s={width}x{height}:fps={FPS},format=yuv420p",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-t", f"{duration:.2f}",
+        "-c:a", "aac", "-b:a", "128k",
+        "-shortest", "-movflags", "+faststart", str(video)
+    ])
+
+
+def combine(clips, destination):
+    concat = destination.parent/(destination.stem+"_concat.txt")
+
+    with concat.open("w", encoding="utf-8") as file:
+        for clip in clips:
+            file.write(f"file '{clip.resolve().as_posix()}'\n")
+
+    if MUSIC.exists():
+        run_command([
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0", "-i", str(concat),
+            "-stream_loop", "-1", "-i", str(MUSIC),
+            "-filter_complex",
+            "[1:a]volume=0.10[m];"
+            "[0:a][m]amix=inputs=2:duration=first:"
+            "dropout_transition=2[a]",
+            "-map", "0:v", "-map", "[a]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart", str(destination)
+        ])
+    else:
+        run_command([
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0", "-i", str(concat),
+            "-c", "copy", "-movflags", "+faststart", str(destination)
+        ])
+
+
+def build_video(scenes, folder, prefix, label, size, short=False):
+    clips = []
+
+    for number, (text, kind) in enumerate(scenes, start=1):
+        print(f"{prefix}: scene {number}/{len(scenes)}", flush=True)
+
+        image = make_scene(
+            text, kind, number, label, size, folder
+        )
+        audio = folder/f"{prefix}_voice_{number:02d}.mp3"
+        clip = folder/f"{prefix}_clip_{number:02d}.mp4"
+
+        asyncio.run(create_voice(text, audio))
+        make_clip(image, audio, clip, duration_of(audio), size)
+        clips.append(clip)
+
+    outro_image = make_outro(folder, size, short)
+    outro_audio = folder/f"{prefix}_outro.mp3"
+    outro_clip = folder/f"{prefix}_outro.mp4"
+
+    if short:
+        outro_text = "ऐसे मज़ेदार सवालों के लिए चैनल को सब्सक्राइब करें।"
+    else:
+        outro_text = (
+            "ऐसी और मज़ेदार कहानियों के लिए हमारे चैनल को "
+            "सब्सक्राइब करें। वीडियो अच्छी लगी हो तो लाइक करें।"
+        )
+
+    asyncio.run(create_voice(outro_text, outro_audio))
+    make_clip(
+        outro_image, outro_audio, outro_clip,
+        duration_of(outro_audio), size
+    )
+    clips.append(outro_clip)
+
+    result = folder/f"{prefix}.mp4"
+    combine(clips, result)
+    return result
+
+
+def main():
+    for tool in ("ffmpeg", "ffprobe"):
+        check = subprocess.run([tool, "-version"], capture_output=True)
+        if check.returncode != 0:
+            raise RuntimeError(f"{tool} is not installed or not on PATH.")
+
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    folder = OUTPUT/datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    story = random.choice(STORIES)
+    quiz = random.choice(QUIZZES)
+
+    print("Selected story:", story["title"], flush=True)
+
+    story_scenes = list(story["scenes"])
+    story_scenes.append((story["moral"], "happy"))
+
+    # Normal video: native landscape 16:9.
+    story_file = build_video(
+        story_scenes, folder, "story",
+        story["title"], LANDSCAPE, short=False
+    )
+    (OUTPUT/"daily_video.mp4").write_bytes(story_file.read_bytes())
+
+    # Short: separate quiz, native portrait 9:16.
+    quiz_scenes = [
+        (quiz["question"], quiz["kind"]),
+        (quiz["options"], quiz["kind"]),
+        ("सोचने के लिए तीन सेकंड हैं!", quiz["kind"]),
+        (quiz["answer"], quiz["kind"])
+    ]
+
+    short_file = build_video(
+        quiz_scenes, folder, "short",
+        "आज का मज़ेदार सवाल", PORTRAIT, short=True
+    )
+    (OUTPUT/"daily_short.mp4").write_bytes(short_file.read_bytes())
+
+    print("SUCCESS")
+    print("Landscape story:", OUTPUT/"daily_video.mp4")
+    print("Portrait quiz Short:", OUTPUT/"daily_short.mp4")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print("ERROR:", error, flush=True)
+        raise SystemExit(1)
