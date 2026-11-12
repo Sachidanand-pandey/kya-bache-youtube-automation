@@ -1,10 +1,15 @@
-@'
+
 name: Kya Bache Daily YouTube Automation
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_youtube:
+        description: "Upload generated video to YouTube"
+        required: true
+        type: boolean
+        default: false
   schedule:
-    # 00:30 UTC = 06:00 AM India Standard Time
     - cron: '30 0 * * *'
 
 permissions:
@@ -42,23 +47,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate and validate new Bal Hanuman Ji video
+      - name: Generate Bal Hanuman Ji video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-2.5-flash
         run: python main.py
-
-      - name: Save story history to GitHub
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add output/story_history.json
-          if ! git diff --cached --quiet; then
-            git commit -m "Update Bal Hanuman story history [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME}
-          else
-            echo "No story history changes to save."
-          fi
 
       - name: Check generated files
         run: |
@@ -68,11 +61,32 @@ jobs:
           test -s output/upload_metadata.json
           test -s output/story_history.json
 
-      - name: Upload one video to YouTube
+      - name: Save story history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f output/story_history.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Bal Hanuman story history [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
+      - name: Save video for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: bal-hanuman-generated-video
+          path: |
+            output/daily_video.mp4
+            output/thumbnail.jpg
+            output/story.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload video to YouTube
+        if: github.event_name == 'schedule' || inputs.upload_to_youtube == true
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_PRIVACY: public
         run: python output/upload_video.py
-'@ | Set-Content .github\workflows\daily-video.yml -Encoding UTF8
