@@ -1,12 +1,12 @@
-
-name: Kya Bache Daily Video Automation
+```yaml
+name: Kya Bache Daily YouTube Automation
 
 on:
   workflow_dispatch:
 
   schedule:
-    - cron: "30 0 * * *" # 6:00 AM IST
-    - cron: "30 12 * * *" # 6:00 PM IST
+    # Every day at 6:00 AM IST (00:30 UTC)
+    - cron: '30 0 * * *'
 
 permissions:
   contents: read
@@ -27,78 +27,37 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
           cache: pip
 
-      - name: Install FFmpeg and Hindi fonts
+      - name: Install FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
+          sudo apt-get install -y ffmpeg
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Debug project files
+      - name: Generate daily video
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          echo "Current directory:"
-          pwd
+          python main.py
 
-          echo "Repository files:"
-          ls -la
-
-          echo "Checking main.py:"
-          if [ -f main.py ]; then
-            wc -l main.py
-            head -n 20 main.py
-          else
-            echo "ERROR: main.py not found"
-            exit 1
-          fi
-
-          echo "Checking uploader:"
-          ls -la output || true
-
-          echo "Checking Python syntax:"
-          python -m py_compile main.py
-
-      - name: Generate full story and separate quiz Short
+      - name: Check generated video
         run: |
-          python -u main.py
+          test -s output/daily_video.mp4
+          test -s output/thumbnail.jpg
+          ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 output/daily_video.mp4
 
-      - name: Verify generated videos
-        run: |
-          echo "Checking generated video files..."
-          ls -lh output/ || true
-
-          if [ ! -s output/daily_video.mp4 ]; then
-            echo "ERROR: output/daily_video.mp4 is missing or empty"
-            exit 1
-          fi
-
-          if [ ! -s output/daily_short.mp4 ]; then
-            echo "ERROR: output/daily_short.mp4 is missing or empty"
-            exit 1
-          fi
-
-          echo "Checking video dimensions..."
-          ffprobe -v error \
-            -select_streams v:0 \
-            -show_entries stream=width,height \
-            -of default=noprint_wrappers=1 \
-            output/daily_video.mp4
-
-          ffprobe -v error \
-            -select_streams v:0 \
-            -show_entries stream=width,height \
-            -of default=noprint_wrappers=1 \
-            output/daily_short.mp4
-
-      - name: Upload both videos to YouTube
+      - name: Upload video to YouTube
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: |
-          python -u output/upload_video.py
+          python output/upload_video.py
+```
