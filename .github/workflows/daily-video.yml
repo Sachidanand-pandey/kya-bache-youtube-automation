@@ -1,14 +1,14 @@
-
+@'
 name: Kya Bache Daily YouTube Automation
 
 on:
   workflow_dispatch:
-
   schedule:
+    # 00:30 UTC = 06:00 AM India Standard Time
     - cron: '30 0 * * *'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: kya-bache-daily-video
@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,29 +31,48 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg and Hindi fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          fc-cache -f
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate daily video
+      - name: Generate and validate new Bal Hanuman Ji video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
         run: python main.py
 
-      - name: Check generated video
+      - name: Save story history to GitHub
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add output/story_history.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Bal Hanuman story history [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          else
+            echo "No story history changes to save."
+          fi
+
+      - name: Check generated files
         run: |
           test -s output/daily_video.mp4
           test -s output/thumbnail.jpg
+          test -s output/story.json
+          test -s output/upload_metadata.json
+          test -s output/story_history.json
 
-      - name: Upload video to YouTube
+      - name: Upload one video to YouTube
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_PRIVACY: public
         run: python output/upload_video.py
+'@ | Set-Content .github\workflows\daily-video.yml -Encoding UTF8
