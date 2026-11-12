@@ -152,6 +152,97 @@ def draw_animal(d,animal,cx,cy,s,index):
     elif animal=="bird": draw_bird(d,cx,cy,s,index,index)
     else: draw_other(d,animal,cx,cy,s,index)
 
+
+def draw_bal_hanuman(d, cx, cy, s, pose=0):
+    """Draw a friendly childlike Bal Hanuman character in every scene."""
+    outline = (105, 55, 35, 255)
+    skin = (205, 112, 65, 255)
+    light_skin = (245, 185, 135, 255)
+    saffron = (238, 125, 35, 255)
+    gold = (250, 205, 75, 255)
+    dark = (55, 35, 30, 255)
+
+    def box(values):
+        return tuple(int(v) for v in values)
+
+    # Tail, with a curled tip; alternate side slightly between scenes.
+    side = -1 if pose % 2 == 0 else 1
+    d.arc(box((cx + side*45*s, cy+35*s, cx + side*230*s, cy+260*s)),
+          180 if side == -1 else 0, 330 if side == -1 else 150,
+          fill=skin, width=max(9, int(22*s)))
+    d.ellipse(box((cx + side*190*s-10*s, cy+100*s,
+                   cx + side*190*s+20*s, cy+130*s)), fill=gold)
+
+    # Legs and saffron dhoti.
+    d.rounded_rectangle(box((cx-75*s, cy+125*s, cx-25*s, cy+245*s)),
+                        radius=max(5, int(15*s)), fill=skin, outline=outline,
+                        width=max(2, int(4*s)))
+    d.rounded_rectangle(box((cx+25*s, cy+125*s, cx+75*s, cy+245*s)),
+                        radius=max(5, int(15*s)), fill=skin, outline=outline,
+                        width=max(2, int(4*s)))
+    d.polygon([box((cx-100*s,cy+55*s)), box((cx+100*s,cy+55*s)),
+               box((cx+80*s,cy+175*s)), box((cx,cy+145*s)),
+               box((cx-80*s,cy+175*s))], fill=saffron, outline=outline)
+    d.line(box((cx-85*s,cy+105*s,cx+85*s,cy+105*s)),
+           fill=gold, width=max(3,int(8*s)))
+
+    # Body and arms. Pose 1 = blessing, pose 2 = holding gada, pose 3 = prayer.
+    d.rounded_rectangle(box((cx-95*s,cy-65*s,cx+95*s,cy+105*s)),
+                        radius=max(10,int(38*s)), fill=skin, outline=outline,
+                        width=max(3,int(5*s)))
+    if pose % 4 == 3:
+        d.line(box((cx-70*s,cy-20*s,cx-8*s,cy+55*s)), fill=skin,
+               width=max(16,int(34*s)))
+        d.line(box((cx+70*s,cy-20*s,cx+8*s,cy+55*s)), fill=skin,
+               width=max(16,int(34*s)))
+        d.ellipse(box((cx-17*s,cy+38*s,cx+17*s,cy+72*s)), fill=light_skin)
+    else:
+        d.line(box((cx-75*s,cy-20*s,cx-145*s,cy+65*s)), fill=skin,
+               width=max(16,int(34*s)))
+        if pose % 4 == 1:
+            d.line(box((cx+75*s,cy-20*s,cx+140*s,cy-100*s)), fill=skin,
+                   width=max(16,int(34*s)))
+            d.ellipse(box((cx+120*s,cy-125*s,cx+165*s,cy-80*s)), fill=light_skin)
+        else:
+            d.line(box((cx+75*s,cy-20*s,cx+145*s,cy+55*s)), fill=skin,
+                   width=max(16,int(34*s)))
+
+    # Monkey-like friendly face, ears and muzzle.
+    d.ellipse(box((cx-125*s,cy-235*s,cx-65*s,cy-155*s)),
+              fill=skin, outline=outline, width=max(2,int(4*s)))
+    d.ellipse(box((cx+65*s,cy-235*s,cx+125*s,cy-155*s)),
+              fill=skin, outline=outline, width=max(2,int(4*s)))
+    d.ellipse(box((cx-105*s,cy-270*s,cx+105*s,cy-80*s)),
+              fill=skin, outline=outline, width=max(3,int(5*s)))
+    d.ellipse(box((cx-68*s,cy-190*s,cx+68*s,cy-105*s)), fill=light_skin)
+    d.ellipse(box((cx-55*s,cy-210*s,cx-28*s,cy-175*s)), fill=dark)
+    d.ellipse(box((cx+28*s,cy-210*s,cx+55*s,cy-175*s)), fill=dark)
+    d.ellipse(box((cx-12*s,cy-165*s,cx+12*s,cy-145*s)), fill=dark)
+    d.arc(box((cx-35*s,cy-155*s,cx+35*s,cy-112*s)), 10, 170,
+          fill=outline, width=max(2,int(4*s)))
+    # Tilak.
+    d.line(box((cx,cy-250*s,cx,cy-218*s)), fill=(235,235,220,255),
+           width=max(4,int(9*s)))
+    d.ellipse(box((cx-8*s,cy-230*s,cx+8*s,cy-214*s)), fill=(190,45,35,255))
+
+    # Small golden crown.
+    d.polygon([box((cx-75*s,cy-250*s)), box((cx-60*s,cy-315*s)),
+               box((cx-20*s,cy-280*s)), box((cx,cy-330*s)),
+               box((cx+25*s,cy-280*s)), box((cx+65*s,cy-315*s)),
+               box((cx+78*s,cy-250*s))], fill=gold, outline=outline)
+    d.rectangle(box((cx-75*s,cy-255*s,cx+78*s,cy-238*s)),
+                fill=(220,155,35,255), outline=outline)
+
+    # Gada held beside him in selected scenes.
+    if pose % 4 == 2:
+        gx = cx + 165*s
+        d.line(box((gx,cy-85*s,gx+5*s,cy+190*s)), fill=(150,90,45,255),
+               width=max(7,int(15*s)))
+        d.ellipse(box((gx-42*s,cy-145*s,gx+48*s,cy-55*s)),
+                  fill=gold, outline=outline, width=max(3,int(5*s)))
+        d.ellipse(box((gx-18*s,cy-125*s,gx+20*s,cy-85*s)),
+                  fill=(255,230,130,255))
+
 def draw_scene(story,scene_text,index):
     IMAGE_DIR.mkdir(parents=True,exist_ok=True)
     rng=random.Random(index+sum(ord(c) for c in str(scene_text)[:50]))
@@ -203,6 +294,9 @@ def draw_scene(story,scene_text,index):
     # If several animals are mentioned, show them together in the same scene.
     for n,animal in enumerate(animals):
         x,y=positions[n]; draw_animal(d,animal,x,y,scales[n],index+n)
+
+    # Keep Bal Hanuman Ji clearly visible in every video scene.
+    draw_bal_hanuman(d, 960, 675, 0.92, index % 4)
 
     overlay=Image.new("RGBA",(WIDTH,HEIGHT),(0,0,0,0)); od=ImageDraw.Draw(overlay)
     title=str(story.get("title","आज की प्यारी कहानी"))
