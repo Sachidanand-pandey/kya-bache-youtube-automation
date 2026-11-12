@@ -1,11 +1,10 @@
-```yaml
+
 name: Kya Bache Daily YouTube Automation
 
 on:
   workflow_dispatch:
 
   schedule:
-    # Every day at 6:00 AM IST (00:30 UTC)
     - cron: '30 0 * * *'
 
 permissions:
@@ -35,7 +34,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -43,21 +42,16 @@ jobs:
       - name: Generate daily video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          python main.py
+        run: python main.py
 
       - name: Check generated video
         run: |
           test -s output/daily_video.mp4
           test -s output/thumbnail.jpg
-          ffprobe -v error -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 output/daily_video.mp4
 
       - name: Upload video to YouTube
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          python output/upload_video.py
-```
+        run: python output/upload_video.py
