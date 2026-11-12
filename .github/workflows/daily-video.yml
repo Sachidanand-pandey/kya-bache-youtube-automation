@@ -50,7 +50,7 @@ jobs:
       - name: Generate Bal Hanuman Ji video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.5-flash
+          GEMINI_MODEL: gemini-3.8-flash
         run: python main.py
 
       - name: Check generated files
@@ -83,7 +83,7 @@ jobs:
           retention-days: 7
 
       - name: Upload video to YouTube
-        if: github.event_name == 'schedule' || inputs.upload_to_youtube == true
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube == true
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
