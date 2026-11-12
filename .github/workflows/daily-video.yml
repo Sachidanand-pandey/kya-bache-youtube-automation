@@ -1,3 +1,4 @@
+@'
 name: Kya Bache Daily YouTube Automation
 
 on:
@@ -47,10 +48,7 @@ jobs:
           GEMINI_MODEL: gemini-2.5-flash
         run: python main.py
 
-      # Persist the history even if later upload fails. This prevents the next run
-      # from reusing the same accepted story. No history is committed on generation failure.
-      - name: Save story history to main branch
-        if: always()
+      - name: Save story history to GitHub
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -77,3 +75,4 @@ jobs:
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           YOUTUBE_PRIVACY: public
         run: python output/upload_video.py
+'@ | Set-Content .github\workflows\daily-video.yml -Encoding UTF8
