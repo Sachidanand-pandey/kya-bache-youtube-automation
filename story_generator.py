@@ -1,5 +1,5 @@
 
-"""Generate original Hindi children's stories using Gemini."""
+"""Generate original Hindi children's stories using Groq."""
 
 import os
 import json
@@ -9,7 +9,7 @@ from pathlib import Path
 from difflib import SequenceMatcher
 
 from dotenv import load_dotenv
-from google import genai
+from groq import Groq
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -19,7 +19,9 @@ STORY_FILE = OUTPUT_DIR / "story.json"
 HISTORY_FILE = OUTPUT_DIR / "story_history.json"
 
 SCENE_COUNT = 12
-MAX_ATTEMPTS = 1
+MAX_ATTEMPTS = 3
+
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
 
 def clean_json_text(text):
@@ -63,7 +65,9 @@ def validate_story(data):
         narration = scene_narration(scene)
 
         if not narration:
-            raise ValueError(f"Narration missing in scene {number}")
+            raise ValueError(
+                f"Narration missing in scene {number}"
+            )
 
         if isinstance(scene, dict):
             visual = str(
@@ -83,7 +87,9 @@ def validate_story(data):
     if not moral:
         raise ValueError("Story moral is missing.")
 
-    character = str(data.get("character", "Main character")).strip()
+    character = str(
+        data.get("character", "Main character")
+    ).strip()
 
     return {
         "title": str(data["title"]).strip(),
@@ -94,207 +100,169 @@ def validate_story(data):
         "topic": str(data.get("topic", "surprise")),
         "scenes": scenes,
         "moral": moral,
-        "source": "gemini"
+        "source": "groq"
     }
 
 
 def load_history():
 
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     if not HISTORY_FILE.exists():
         return []
 
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        with open(
+            HISTORY_FILE, "r", encoding="utf-8"
+        ) as file:
+            history = json.load(file)
 
-        if isinstance(data, list):
-            return data
-
-        return []
+        return history if isinstance(history, list) else []
 
     except (json.JSONDecodeError, OSError):
-        raise RuntimeError(
-            "Story history is unreadable. Please check story_history.json."
-        )
+        print("Warning: Could not read story history.")
+        return []
 
 
 def story_text(story):
 
-    narration = []
+    parts = [story.get("title", "")]
 
-    for scene in story["scenes"]:
-        narration.append(scene_narration(scene))
+    for scene in story.get("scenes", []):
+        parts.append(scene_narration(scene))
 
-    return " ".join(
-        [story["title"]] + narration + [story["moral"]]
-    )
+    parts.append(story.get("moral", ""))
+
+    return " ".join(parts)
 
 
 def find_duplicate(story, history):
 
-    new_title = story["title"].lower()
     new_text = story_text(story).lower()
 
-    for old in history:
+    for old_story in history:
 
-        old_title = str(old.get("title", "")).lower()
-        old_text = str(old.get("text", "")).lower()
+        old_title = str(
+            old_story.get("title", "")
+        ).strip().lower()
 
-        if old_title == new_title:
+        new_title = story.get("title", "").strip().lower()
+
+        if old_title and old_title == new_title:
             return True
+
+        old_text = str(
+            old_story.get("text", "")
+        ).lower()
 
         if old_text:
             similarity = SequenceMatcher(
                 None, new_text, old_text
             ).ratio()
 
-            if similarity >= 0.82:
+            if similarity > 0.85:
                 return True
 
     return False
 
 
-def generate_with_gemini(topic, previous_titles, attempt):
+def generate_with_groq(topic, previous_titles, attempt):
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
 
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY is missing. Check your .env file."
+            "GROQ_API_KEY is missing. Check your .env file."
         )
 
-    client = genai.Client(api_key=api_key)
+    client = Groq(api_key=api_key)
 
-    if topic:
-        topic_instruction = (
-            f"Create a children's story about: {topic}"
-        )
-    else:
-        topic_instruction = """
-Choose a fresh story idea yourself.
+    topic_text = topic if topic else "any interesting children's story"
 
-Rotate between:
-- Animal stories
-- Friendship
-- School adventures
-- Jungle adventures
-- Magical stories
-- Honesty
-- Kindness
-- Courage
-- Family
-- Nature
-- Science adventures
-- Indian folk-inspired fictional stories
-
-Do not always generate the same type of story.
-Do not force Bal Hanuman or religious stories unless requested.
-"""
-
-    previous = "\n".join(
-        previous_titles[-50:]
+    previous_text = (
+        ", ".join(previous_titles[-20:])
+        if previous_titles
+        else "None"
     )
 
     prompt = f"""
-You are an expert Hindi children's story writer.
+Create one original Hindi children's story for children aged 5 to 10.
 
-Create an original and entertaining story for children
-aged 5 to 10 years.
+Topic: {topic_text}
 
-{topic_instruction}
+Previously used story titles (avoid these):
+{previous_text}
 
-LANGUAGE:
-Use simple, natural Hindi in Devanagari script.
+Requirements:
+1. Write the complete story in simple, natural Hindi.
+2. Create exactly 12 scenes.
+3. Every scene must have narration and visual_prompt.
+4. Keep the same main character throughout the story.
+5. Make the story interesting, positive and suitable for children.
+6. Include friendship, kindness, adventure or problem-solving.
+7. Finish with a clear moral in Hindi.
+8. Avoid religious themes and violence.
+9. Make visual prompts suitable for colorful 2D cartoon illustrations.
+10. Do not repeat previously used stories.
 
-STORY REQUIREMENTS:
-1. The story must be interesting and child-friendly.
-2. It must have exactly 12 scenes.
-3. Each scene must have 2 to 3 narration sentences.
-4. The opening must attract children's attention.
-5. Include a small problem or adventure.
-6. The main character should solve the problem.
-7. End with a happy and meaningful conclusion.
-8. Include a positive moral.
-9. Avoid frightening, graphic or harmful content.
-10. Do not present fictional events as real history.
-
-CHARACTER CONSISTENCY:
-Describe the main character's appearance.
-Keep the same appearance in all 12 illustrations.
-
-IMAGE PROMPTS:
-For every scene create a detailed English visual_prompt.
-Describe the background, characters, action, lighting
-and camera framing.
-
-Image style:
-Beautiful 2D cartoon storybook animation style.
-Colorful, friendly and expressive characters.
-Wide 16:9 composition.
-No text, watermark or logo.
-
-Return ONLY valid JSON.
-
-Required format:
+Return ONLY valid JSON in this exact structure:
 
 {{
   "title": "Hindi story title",
   "character": "Main character description",
-  "character_guide": "Detailed consistent appearance",
-  "topic": "Story category",
+  "character_guide": "Detailed consistent character appearance",
+  "topic": "{topic_text}",
   "scenes": [
     {{
       "narration": "Hindi narration",
-      "visual_prompt": "Detailed English image prompt"
+      "visual_prompt": "English cartoon image description"
     }}
   ],
   "moral": "Hindi moral"
 }}
 
-IMPORTANT:
-- Exactly 12 scene objects.
-- Do not add extra scenes.
-- Do not repeat these previous titles:
-
-{previous}
-
-Generation attempt: {attempt}
+There must be exactly 12 scene objects.
 """
 
-    model = os.getenv(
-        "GEMINI_MODEL",
-        "gemini-3.8-flash"
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert Hindi children's "
+                    "story writer. Return only valid JSON."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.8,
+        max_completion_tokens=6000
     )
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt
-    )
+    content = response.choices[0].message.content
 
-    if not response.text:
-        raise RuntimeError("Gemini returned an empty response.")
+    if not content:
+        raise ValueError("Groq returned an empty response.")
 
-    data = json.loads(
-        clean_json_text(response.text)
-    )
+    cleaned = clean_json_text(content)
 
-    story = validate_story(data)
+    story = json.loads(cleaned)
 
-    if topic:
-        story["topic"] = topic
-
-    return story
+    return validate_story(story)
 
 
 def generate_story(topic=""):
-
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     history = load_history()
 
     previous_titles = [
         item.get("title", "")
         for item in history
+        if isinstance(item, dict)
     ]
 
     last_error = None
@@ -305,10 +273,10 @@ def generate_story(topic=""):
 
             print(
                 f"\nGenerating children's story "
-                f"{attempt}/{MAX_ATTEMPTS}"
+                f"{attempt}/{MAX_ATTEMPTS} using Groq"
             )
 
-            story = generate_with_gemini(
+            story = generate_with_groq(
                 topic,
                 previous_titles,
                 attempt
@@ -344,7 +312,9 @@ def generate_story(topic=""):
             )
 
             if attempt < MAX_ATTEMPTS:
-                time.sleep(min(attempt * 5, 30))
+                wait_time = attempt * 10
+                print(f"Retrying after {wait_time} seconds...")
+                time.sleep(wait_time)
 
     raise RuntimeError(
         f"Story generation failed after {MAX_ATTEMPTS} attempts. "
@@ -364,44 +334,15 @@ def record_successful_story(story):
         "text": story_text(story)
     })
 
-    HISTORY_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with open(
         HISTORY_FILE, "w", encoding="utf-8"
     ) as file:
 
         json.dump(
-            history[-365:],
+            history,
             file,
             ensure_ascii=False,
             indent=4
         )
-
-
-if __name__ == "__main__":
-
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--topic",
-        default="",
-        help="Optional children's story topic"
-    )
-
-    args = parser.parse_args()
-
-    story = generate_story(args.topic)
-
-    print(
-        json.dumps(
-            story,
-            ensure_ascii=False,
-            indent=4
-        )
-    )
-

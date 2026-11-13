@@ -44,9 +44,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate children's story video
+              - name: Generate children's story video
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-3.8-flash
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: openai/gpt-oss-20b
         run: python main.py
 
       - name: Check generated files
