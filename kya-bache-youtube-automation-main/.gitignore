@@ -1,0 +1,17 @@
+
+work/
+output/
+daily_video.mp4
+
+client_secret.json
+youtube_token.pickle
+token.pickle
+token.json
+credentials.json
+
+.env
+.env.*
+__pycache__/
+*.pyc
+.venv/
+venv/
