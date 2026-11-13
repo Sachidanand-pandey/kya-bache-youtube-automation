@@ -1,9 +1,14 @@
 
-import math
-import random
+import os
+import time
+import base64
 from pathlib import Path
+from io import BytesIO
 
-from PIL import Image, ImageDraw
+import requests
+from PIL import Image, ImageOps
+from dotenv import load_dotenv
+
 
 BASE_DIR = Path(__file__).resolve().parent
 IMAGE_DIR = BASE_DIR / "output" / "images"
@@ -11,370 +16,202 @@ IMAGE_DIR = BASE_DIR / "output" / "images"
 WIDTH = 1280
 HEIGHT = 720
 
-random.seed(10)
+MODEL = "@cf/black-forest-labs/flux-1-schnell"
+
+load_dotenv(BASE_DIR / ".env")
+
+ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
 
 
-def draw_background(draw, scene_number):
-    # Sky
-    draw.rectangle((0, 0, WIDTH, 470), fill="#87CEEB")
+def generate_image(prompt, scene_number, story_context):
 
-    # Sun
-    draw.ellipse((1030, 55, 1150, 175), fill="#FFD93D")
-
-    # Clouds
-    for x, y in [(150, 100), (450, 80), (780, 150)]:
-        draw.ellipse((x, y, x + 100, y + 55), fill="white")
-        draw.ellipse((x + 35, y - 25, x + 125, y + 55), fill="white")
-        draw.ellipse((x + 70, y, x + 150, y + 55), fill="white")
-
-    # Distant hills
-    draw.ellipse((-150, 300, 600, 650), fill="#6DBB62")
-    draw.ellipse((400, 300, 1100, 650), fill="#55A94F")
-    draw.ellipse((850, 320, 1450, 650), fill="#70C56A")
-
-    # Ground
-    draw.rectangle((0, 460, WIDTH, HEIGHT), fill="#45A049")
-
-    # Grass details
-    for _ in range(150):
-        x = random.randint(0, WIDTH)
-        y = random.randint(470, HEIGHT)
-        draw.line((x, y, x - 5, y - 15), fill="#277A36", width=3)
-
-    # Trees
-    for x, y in [(100, 330), (1080, 350), (900, 300)]:
-        draw.rectangle((x, y, x + 35, y + 170), fill="#80552E")
-        draw.ellipse((x - 60, y - 100, x + 100, y + 60),
-                     fill="#238B45")
-        draw.ellipse((x - 35, y - 140, x + 75, y + 20),
-                     fill="#2E9E50")
-
-    # Flowers
-    for _ in range(35):
-        x = random.randint(20, WIDTH - 20)
-        y = random.randint(540, 690)
-        color = random.choice(
-            ["#FF69B4", "#FFFF00", "#FFFFFF", "#FF8C42"]
-        )
-        draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill=color)
-        draw.ellipse((x - 3, y - 3, x + 3, y + 3),
-                     fill="#F5C542")
-
-
-def draw_rabbit(draw, x, y, scale=1):
-    # Body
-    draw.ellipse(
-        (x - 65 * scale, y - 35 * scale,
-         x + 65 * scale, y + 75 * scale),
-        fill="#FFFFFF", outline="#555555", width=4
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        + ACCOUNT_ID
+        + "/ai/run/"
+        + MODEL
     )
 
-    # Head
-    draw.ellipse(
-        (x - 65 * scale, y - 125 * scale,
-         x + 65 * scale, y + 10 * scale),
-        fill="#FFFFFF", outline="#555555", width=4
+    headers = {
+        "Authorization": "Bearer " + API_TOKEN
+    }
+
+    full_prompt = (
+        "Create a beautiful 2D cartoon illustration for a Hindi "
+        "children's story, landscape 16:9 composition. "
+        "Bright colors, expressive faces, polished children's "
+        "storybook illustration, family-friendly. "
+        "Maintain the same character designs, clothing, colors "
+        "and proportions throughout this story. "
+        "Do not replace human characters with animals. "
+        "Do not add unrelated characters. "
+        "Story context: "
+        + story_context
+        + " Current scene: "
+        + prompt
     )
 
-    # Ears
-    draw.ellipse(
-        (x - 48 * scale, y - 235 * scale,
-         x - 5 * scale, y - 90 * scale),
-        fill="#FFFFFF", outline="#555555", width=4
-    )
-    draw.ellipse(
-        (x + 5 * scale, y - 235 * scale,
-         x + 48 * scale, y - 90 * scale),
-        fill="#FFFFFF", outline="#555555", width=4
-    )
+    payload = {
+        "prompt": full_prompt,
+        "steps": 4
+    }
 
-    # Inner ears
-    draw.ellipse(
-        (x - 37 * scale, y - 215 * scale,
-         x - 15 * scale, y - 105 * scale),
-        fill="#FFB6C1"
-    )
-    draw.ellipse(
-        (x + 15 * scale, y - 215 * scale,
-         x + 37 * scale, y - 105 * scale),
-        fill="#FFB6C1"
-    )
+    for attempt in range(1, 4):
 
-    # Eyes and nose
-    draw.ellipse(
-        (x - 35 * scale, y - 75 * scale,
-         x - 20 * scale, y - 58 * scale),
-        fill="black"
-    )
-    draw.ellipse(
-        (x + 20 * scale, y - 75 * scale,
-         x + 35 * scale, y - 58 * scale),
-        fill="black"
-    )
-    draw.ellipse(
-        (x - 8 * scale, y - 43 * scale,
-         x + 8 * scale, y - 31 * scale),
-        fill="#FF69B4"
-    )
+        try:
+            print(
+                f"Calling Cloudflare for scene {scene_number}, "
+                f"attempt {attempt}/3..."
+            )
 
-    # Smile
-    draw.arc(
-        (x - 18 * scale, y - 45 * scale,
-         x + 18 * scale, y - 15 * scale),
-        0, 180, fill="black", width=3
-    )
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=180
+            )
 
-    # Blue scarf
-    draw.rectangle(
-        (x - 48 * scale, y - 5 * scale,
-         x + 48 * scale, y + 15 * scale),
-        fill="#168BFF"
-    )
-    draw.polygon(
-        [(x + 35 * scale, y + 5 * scale),
-         (x + 75 * scale, y + 35 * scale),
-         (x + 35 * scale, y + 25 * scale)],
-        fill="#168BFF"
-    )
+            if response.status_code in (401, 403):
+                raise RuntimeError(
+                    "Cloudflare authentication or permission error: "
+                    + response.text[:1000]
+                )
 
+            if response.status_code == 429:
+                raise RuntimeError(
+                    "Cloudflare rate limit or free allowance reached. "
+                    "Stopping image generation."
+                )
 
-def draw_deer(draw, x, y, scale=1):
-    # Body
-    draw.ellipse(
-        (x - 65 * scale, y - 20 * scale,
-         x + 65 * scale, y + 75 * scale),
-        fill="#B9783E", outline="#55351E", width=4
-    )
+            response.raise_for_status()
 
-    # Legs
-    for lx in [-40, 35]:
-        draw.rectangle(
-            (x + lx * scale, y + 45 * scale,
-             x + (lx + 15) * scale, y + 120 * scale),
-            fill="#A96935"
-        )
+            content_type = response.headers.get(
+                "Content-Type", ""
+            )
 
-    # Neck and head
-    draw.ellipse(
-        (x + 20 * scale, y - 105 * scale,
-         x + 90 * scale, y + 20 * scale),
-        fill="#B9783E", outline="#55351E", width=3
-    )
-    draw.ellipse(
-        (x + 35 * scale, y - 165 * scale,
-         x + 125 * scale, y - 75 * scale),
-        fill="#B9783E", outline="#55351E", width=3
-    )
+            if "image/" in content_type:
+                image_bytes = response.content
+            else:
+                result = response.json()
 
-    # Ears
-    draw.ellipse(
-        (x + 5 * scale, y - 180 * scale,
-         x + 55 * scale, y - 130 * scale),
-        fill="#B9783E"
-    )
-    draw.ellipse(
-        (x + 90 * scale, y - 185 * scale,
-         x + 145 * scale, y - 135 * scale),
-        fill="#B9783E"
-    )
+                if not result.get("success", False):
+                    raise RuntimeError(
+                        "Cloudflare image generation failed: "
+                        + str(result.get("errors", []))
+                    )
 
-    # Eye and nose
-    draw.ellipse(
-        (x + 100 * scale, y - 130 * scale,
-         x + 112 * scale, y - 118 * scale),
-        fill="black"
-    )
-    draw.ellipse(
-        (x + 115 * scale, y - 100 * scale,
-         x + 130 * scale, y - 88 * scale),
-        fill="#FF69B4"
-    )
+                image_data = (
+                    result.get("result", {}).get("image")
+                )
 
-    # White spots
-    for sx, sy in [(-35, 5), (-5, -5), (25, 15)]:
-        draw.ellipse(
-            (x + sx * scale, y + sy * scale,
-             x + (sx + 13) * scale, y + (sy + 13) * scale),
-            fill="white"
-        )
+                if not image_data:
+                    raise RuntimeError(
+                        "No image returned by Cloudflare."
+                    )
 
+                image_bytes = base64.b64decode(image_data)
 
-def draw_lion(draw, x, y, scale=1):
-    # Mane
-    draw.ellipse(
-        (x - 105 * scale, y - 190 * scale,
-         x + 105 * scale, y + 40 * scale),
-        fill="#A85C24", outline="#713C1A", width=5
-    )
+            image = Image.open(
+                BytesIO(image_bytes)
+            ).convert("RGB")
 
-    # Face
-    draw.ellipse(
-        (x - 70 * scale, y - 155 * scale,
-         x + 70 * scale, y - 15 * scale),
-        fill="#F4B65E", outline="#713C1A", width=4
-    )
+            image = ImageOps.fit(
+                image,
+                (WIDTH, HEIGHT),
+                method=Image.Resampling.LANCZOS
+            )
 
-    # Ears
-    draw.ellipse(
-        (x - 80 * scale, y - 160 * scale,
-         x - 35 * scale, y - 115 * scale),
-        fill="#F4B65E"
-    )
-    draw.ellipse(
-        (x + 35 * scale, y - 160 * scale,
-         x + 80 * scale, y - 115 * scale),
-        fill="#F4B65E"
-    )
+            return image
 
-    # Eyes
-    draw.ellipse(
-        (x - 40 * scale, y - 105 * scale,
-         x - 22 * scale, y - 85 * scale),
-        fill="black"
-    )
-    draw.ellipse(
-        (x + 22 * scale, y - 105 * scale,
-         x + 40 * scale, y - 85 * scale),
-        fill="black"
-    )
+        except RuntimeError:
+            raise
 
-    # Nose and mouth
-    draw.ellipse(
-        (x - 12 * scale, y - 65 * scale,
-         x + 12 * scale, y - 48 * scale),
-        fill="#713C1A"
-    )
-    draw.arc(
-        (x - 22 * scale, y - 65 * scale,
-         x + 22 * scale, y - 25 * scale),
-        0, 180, fill="black", width=4
-    )
+        except requests.RequestException as error:
 
-    # Body
-    draw.ellipse(
-        (x - 70 * scale, y - 15 * scale,
-         x + 70 * scale, y + 100 * scale),
-        fill="#F4B65E", outline="#713C1A", width=4
-    )
+            if attempt == 3:
+                raise RuntimeError(
+                    f"Scene {scene_number} image failed: {error}"
+                )
 
-    # Legs
-    for lx in [-45, 35]:
-        draw.rectangle(
-            (x + lx * scale, y + 70 * scale,
-             x + (lx + 25) * scale, y + 125 * scale),
-            fill="#F4B65E"
-        )
+            print("Temporary network error. Retrying...")
+            time.sleep(attempt * 5)
 
-
-def draw_river(draw):
-    draw.polygon(
-        [(0, 500), (250, 475), (500, 530),
-         (780, 490), (1050, 540), (1280, 500),
-         (1280, 720), (0, 720)],
-        fill="#31BDE8"
-    )
-
-    for y in [560, 620, 680]:
-        draw.arc(
-            (100, y, 500, y + 35),
-            0, 180, fill="#FFFFFF", width=4
-        )
-
-
-def draw_ball(draw, x, y):
-    draw.ellipse(
-        (x - 45, y - 45, x + 45, y + 45),
-        fill="#FF3030", outline="#9C1111", width=5
-    )
-    draw.arc(
-        (x - 30, y - 30, x + 30, y + 30),
-        0, 180, fill="white", width=5
-    )
+        except Exception as error:
+            raise RuntimeError(
+                f"Could not process scene {scene_number}: {error}"
+            )
 
 
 def create_scene_images(story, output_dir=None):
+
+    if not ACCOUNT_ID or not API_TOKEN:
+        raise RuntimeError(
+            "Cloudflare credentials missing from .env"
+        )
+
     scenes = story.get("scenes", [])
 
     if len(scenes) != 12:
-        raise ValueError("Story must contain exactly 12 scenes.")
+        raise ValueError(
+            "Story must contain exactly 12 scenes."
+        )
 
-    target_dir = Path(output_dir) if output_dir else IMAGE_DIR
-    target_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = (
+        Path(output_dir)
+        if output_dir
+        else IMAGE_DIR
+    )
+
+    target_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    # Build shared context from all scene descriptions.
+    story_context = "Story title: " + story.get("title", "")
+
+    for index, scene in enumerate(scenes, start=1):
+
+        visual_prompt = scene.get("visual_prompt", "")
+
+        if not visual_prompt:
+            raise ValueError(
+                f"Scene {index} has no visual_prompt."
+            )
+
+        story_context += (
+            f"\nScene {index}: {visual_prompt}"
+        )
 
     image_paths = []
 
     for index, scene in enumerate(scenes, start=1):
-        print(f"Creating cartoon image {index}/12...")
 
-        image = Image.new(
-            "RGB",
-            (WIDTH, HEIGHT),
-            "#87CEEB"
+        print(
+            f"\nGenerating AI story image {index}/12..."
         )
-        draw = ImageDraw.Draw(image)
 
-        draw_background(draw, index)
+        visual_prompt = scene["visual_prompt"]
 
-        # River scenes
-        if index in [9, 10, 11]:
-            draw_river(draw)
+        image = generate_image(
+            visual_prompt,
+            index,
+            story_context
+        )
 
-        # Character positions
-        if index == 1:
-            draw_rabbit(draw, 640, 570, 1.35)
+        image_path = (
+            target_dir / f"scene_{index:02d}.png"
+        )
 
-        elif index == 2:
-            draw_rabbit(draw, 430, 570, 1.1)
-
-        elif index == 3:
-            draw_rabbit(draw, 450, 570, 0.9)
-            draw_deer(draw, 750, 570, 0.9)
-
-        elif index in [4, 5, 6]:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 600, 570, 0.8)
-            draw_lion(draw, 900, 570, 0.8)
-
-        elif index in [7, 8]:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 620, 570, 0.8)
-            draw_lion(draw, 920, 570, 0.8)
-
-        elif index == 9:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 620, 570, 0.8)
-            draw_lion(draw, 920, 570, 0.8)
-            draw_ball(draw, 1080, 520)
-
-        elif index == 10:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 620, 570, 0.8)
-            draw_lion(draw, 920, 570, 0.8)
-
-            # Wooden bridge
-            draw.rectangle(
-                (400, 500, 850, 535),
-                fill="#A66A35",
-                outline="#633B1B",
-                width=5
-            )
-
-        elif index == 11:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 620, 570, 0.8)
-            draw_lion(draw, 920, 570, 0.8)
-            draw_ball(draw, 800, 500)
-
-        elif index == 12:
-            draw_rabbit(draw, 330, 570, 0.8)
-            draw_deer(draw, 620, 570, 0.8)
-            draw_lion(draw, 920, 570, 0.8)
-
-        image_path = target_dir / f"scene_{index:02d}.png"
         image.save(image_path, "PNG")
 
         image_paths.append(str(image_path))
+
         print("Saved:", image_path)
 
-    print("\nAll 12 offline cartoon images created!")
+    print(
+        "\nAll 12 Cloudflare AI story images generated!"
+    )
+
     return image_paths
