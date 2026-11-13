@@ -1,5 +1,5 @@
 
-name: Kya Bache Daily YouTube Automation
+name: Kya Bache YouTube Automation
 
 on:
   workflow_dispatch:
@@ -9,14 +9,12 @@ on:
         required: true
         type: boolean
         default: false
-  schedule:
-    - cron: '30 0 * * *'
 
 permissions:
   contents: write
 
 concurrency:
-  group: kya-bache-daily-video
+  group: kya-bache-video
   cancel-in-progress: false
 
 jobs:
@@ -47,7 +45,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate Bal Hanuman Ji video
+      - name: Generate children's story video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.8-flash
@@ -67,14 +65,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f output/story_history.json
           if ! git diff --cached --quiet; then
-            git commit -m "Update Bal Hanuman story history [skip ci]"
+            git commit -m "Update story history [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
 
       - name: Save video for review
         uses: actions/upload-artifact@v4
         with:
-          name: bal-hanuman-generated-video
+          name: kya-bache-generated-video
           path: |
             output/daily_video.mp4
             output/thumbnail.jpg
@@ -83,7 +81,7 @@ jobs:
           retention-days: 7
 
       - name: Upload video to YouTube
-        if: github.event_name == 'workflow_dispatch' && inputs.upload_to_youtube == true
+        if: inputs.upload_to_youtube == true
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}

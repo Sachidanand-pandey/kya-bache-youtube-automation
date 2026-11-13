@@ -1,31 +1,25 @@
 
-"""Generate a fresh, child-friendly Bal Hanuman Ji story using Gemini.
+"""Generate original Hindi children's stories using Gemini."""
 
-No offline story fallback is allowed.
-If Gemini fails or a duplicate is detected, the program stops.
-"""
-
-import json
 import os
+import json
 import re
 import time
-from difflib import SequenceMatcher
 from pathlib import Path
+from difflib import SequenceMatcher
 
-OUTPUT_DIR = Path("output")
+from dotenv import load_dotenv
+from google import genai
+
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+OUTPUT_DIR = BASE_DIR / "output"
 STORY_FILE = OUTPUT_DIR / "story.json"
 HISTORY_FILE = OUTPUT_DIR / "story_history.json"
 
 SCENE_COUNT = 12
-MAX_ATTEMPTS = 5
-MAX_HISTORY = 365
-
-HANUMAN_TERMS = (
-    "हनुमान",
-    "बजरंगबली",
-    "मारुति",
-    "पवनपुत्र"
-)
+MAX_ATTEMPTS = 1
 
 
 def clean_json_text(text):
@@ -38,59 +32,70 @@ def clean_json_text(text):
     return text.strip()
 
 
-def normalize(text):
-    text = str(text).lower()
-    return re.sub(r"[^\w\u0900-\u097f]+", "", text)
+def scene_narration(scene):
+    if isinstance(scene, str):
+        return scene.strip()
+
+    if isinstance(scene, dict):
+        return str(scene.get("narration", "")).strip()
+
+    return ""
 
 
 def validate_story(data):
 
     if not isinstance(data, dict):
-        raise ValueError("Gemini response is not a JSON object.")
+        raise ValueError("Invalid story format.")
 
-    for key in ("title", "character", "scenes", "moral"):
-        if key not in data:
-            raise ValueError(f"Missing story field: {key}")
+    if not data.get("title"):
+        raise ValueError("Story title is missing.")
 
-    if not isinstance(data["scenes"], list):
+    if not isinstance(data.get("scenes"), list):
         raise ValueError("Scenes must be a list.")
 
     if len(data["scenes"]) != SCENE_COUNT:
         raise ValueError("Story must contain exactly 12 scenes.")
 
-    scenes = [str(scene).strip() for scene in data["scenes"]]
+    scenes = []
 
-    if any(not scene for scene in scenes):
-        raise ValueError("Every scene must contain narration text.")
+    for number, scene in enumerate(data["scenes"], 1):
 
-    for number, scene in enumerate(scenes, start=1):
+        narration = scene_narration(scene)
 
-        if not any(term in scene for term in HANUMAN_TERMS):
-            raise ValueError(
-                f"Scene {number} must explicitly mention Bal Hanuman Ji."
-            )
+        if not narration:
+            raise ValueError(f"Narration missing in scene {number}")
 
-    title = str(data["title"]).strip()
-    character = str(data["character"]).strip()
-    moral = str(data["moral"]).strip()
+        if isinstance(scene, dict):
+            visual = str(
+                scene.get("visual_prompt", "")
+            ).strip()
+        else:
+            visual = ""
 
-    if not title or not character or not moral:
-        raise ValueError("Title, character and moral cannot be empty.")
+        scenes.append({
+            "narration": narration,
+            "visual_prompt": visual or
+                f"Create a cartoon illustration for: {narration}"
+        })
 
-    if not any(term in character for term in HANUMAN_TERMS):
-        raise ValueError("The main character must be Bal Hanuman Ji.")
+    moral = str(data.get("moral", "")).strip()
 
-    result = {
-        "title": title,
+    if not moral:
+        raise ValueError("Story moral is missing.")
+
+    character = str(data.get("character", "Main character")).strip()
+
+    return {
+        "title": str(data["title"]).strip(),
         "character": character,
+        "character_guide": str(
+            data.get("character_guide", character)
+        ).strip(),
+        "topic": str(data.get("topic", "surprise")),
         "scenes": scenes,
-        "moral": moral
+        "moral": moral,
+        "source": "gemini"
     }
-
-    if data.get("source"):
-        result["source"] = str(data["source"])
-
-    return result
 
 
 def load_history():
@@ -99,139 +104,189 @@ def load_history():
         return []
 
     try:
-        data = json.loads(
-            HISTORY_FILE.read_text(encoding="utf-8")
-        )
+        with open(HISTORY_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
 
-        if not isinstance(data, list):
-            raise ValueError("Story history must be a JSON list.")
+        if isinstance(data, list):
+            return data
 
-        return data
+        return []
 
-    except (json.JSONDecodeError, OSError, ValueError) as exc:
+    except (json.JSONDecodeError, OSError):
         raise RuntimeError(
-            f"Cannot safely read story history: {exc}"
-        ) from exc
+            "Story history is unreadable. Please check story_history.json."
+        )
 
 
 def story_text(story):
 
-    return " ".join([
-        story["title"],
-        *story["scenes"],
-        story["moral"]
-    ])
+    narration = []
+
+    for scene in story["scenes"]:
+        narration.append(scene_narration(scene))
+
+    return " ".join(
+        [story["title"]] + narration + [story["moral"]]
+    )
 
 
 def find_duplicate(story, history):
 
-    new_title = normalize(story["title"])
-    new_text = normalize(story_text(story))
+    new_title = story["title"].lower()
+    new_text = story_text(story).lower()
 
     for old in history:
 
-        old_title = normalize(old.get("title", ""))
-        old_text = normalize(old.get("text", ""))
+        old_title = str(old.get("title", "")).lower()
+        old_text = str(old.get("text", "")).lower()
 
-        if new_title and new_title == old_title:
-            return old.get("title", "previous story")
+        if old_title == new_title:
+            return True
 
-        if old_text and SequenceMatcher(
-            None, new_text, old_text
-        ).ratio() >= 0.78:
+        if old_text:
+            similarity = SequenceMatcher(
+                None, new_text, old_text
+            ).ratio()
 
-            return old.get("title", "previous story")
+            if similarity >= 0.82:
+                return True
 
-    return None
+    return False
 
 
-def generate_with_gemini(attempt, previous_titles):
-
-    from google import genai
+def generate_with_gemini(topic, previous_titles, attempt):
 
     api_key = os.getenv("GEMINI_API_KEY")
 
     if not api_key:
         raise RuntimeError(
-            "GEMINI_API_KEY is not configured. No story was generated."
+            "GEMINI_API_KEY is missing. Check your .env file."
         )
 
     client = genai.Client(api_key=api_key)
 
-    title_list = "\n".join(
-        f"- {title}" for title in previous_titles[-80:]
+    if topic:
+        topic_instruction = (
+            f"Create a children's story about: {topic}"
+        )
+    else:
+        topic_instruction = """
+Choose a fresh story idea yourself.
+
+Rotate between:
+- Animal stories
+- Friendship
+- School adventures
+- Jungle adventures
+- Magical stories
+- Honesty
+- Kindness
+- Courage
+- Family
+- Nature
+- Science adventures
+- Indian folk-inspired fictional stories
+
+Do not always generate the same type of story.
+Do not force Bal Hanuman or religious stories unless requested.
+"""
+
+    previous = "\n".join(
+        previous_titles[-50:]
     )
 
     prompt = f"""
-Create a NEW, original Hindi devotional adventure story
-for children aged 4–9.
+You are an expert Hindi children's story writer.
 
-The central hero in every scene is बाल हनुमान जी
-(Bal Hanuman Ji).
+Create an original and entertaining story for children
+aged 5 to 10 years.
 
-Use gentle, respectful Hindu devotional storytelling
-and child-friendly language.
+{topic_instruction}
 
-Themes may include courage, kindness, helping others,
-honesty, devotion and wisdom.
+LANGUAGE:
+Use simple, natural Hindi in Devanagari script.
 
-Do not copy or closely imitate any known story,
-scripture episode, movie, cartoon, or any story
-in the previous-title list.
+STORY REQUIREMENTS:
+1. The story must be interesting and child-friendly.
+2. It must have exactly 12 scenes.
+3. Each scene must have 2 to 3 narration sentences.
+4. The opening must attract children's attention.
+5. Include a small problem or adventure.
+6. The main character should solve the problem.
+7. End with a happy and meaningful conclusion.
+8. Include a positive moral.
+9. Avoid frightening, graphic or harmful content.
+10. Do not present fictional events as real history.
 
-Invent a fresh, simple child-safe situation.
+CHARACTER CONSISTENCY:
+Describe the main character's appearance.
+Keep the same appearance in all 12 illustrations.
 
-Bal Hanuman Ji must actively participate in every scene.
+IMAGE PROMPTS:
+For every scene create a detailed English visual_prompt.
+Describe the background, characters, action, lighting
+and camera framing.
 
-Every scene's narration must explicitly include
-the words 'हनुमान जी' or 'बाल हनुमान'.
+Image style:
+Beautiful 2D cartoon storybook animation style.
+Colorful, friendly and expressive characters.
+Wide 16:9 composition.
+No text, watermark or logo.
 
-Return ONLY valid JSON, in Devanagari Hindi,
-with exactly these keys:
+Return ONLY valid JSON.
 
-title, character, scenes, moral.
+Required format:
 
-The scenes array must contain EXACTLY 12 non-empty scenes.
+{{
+  "title": "Hindi story title",
+  "character": "Main character description",
+  "character_guide": "Detailed consistent appearance",
+  "topic": "Story category",
+  "scenes": [
+    {{
+      "narration": "Hindi narration",
+      "visual_prompt": "Detailed English image prompt"
+    }}
+  ],
+  "moral": "Hindi moral"
+}}
 
-Each scene should have 2–3 connected sentences
-suitable for Hindi voice narration.
+IMPORTANT:
+- Exactly 12 scene objects.
+- Do not add extra scenes.
+- Do not repeat these previous titles:
 
-Include a clear opening, a gentle problem,
-a thoughtful solution, a happy ending
-and a positive moral.
+{previous}
 
-Avoid violence, frightening content,
-dangerous instructions and disrespectful content.
-
-Attempt number: {attempt}.
-Create a different plot, not just different wording.
-
-Previously used titles (avoid these):
-{title_list if title_list else '- None yet'}
-
-JSON shape:
-{{"title":"...", "character":"बाल हनुमान जी",
-"scenes":["scene 1","scene 2"], "moral":"..."}}
-
-Remember: provide exactly 12 scene strings in the scenes array.
+Generation attempt: {attempt}
 """
 
+    model = os.getenv(
+        "GEMINI_MODEL",
+        "gemini-3.8-flash"
+    )
+
     response = client.models.generate_content(
-        model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
+        model=model,
         contents=prompt
     )
 
-    if not getattr(response, "text", None):
+    if not response.text:
         raise RuntimeError("Gemini returned an empty response.")
 
-    story_data = json.loads(
+    data = json.loads(
         clean_json_text(response.text)
     )
 
-    return validate_story(story_data)
+    story = validate_story(data)
+
+    if topic:
+        story["topic"] = topic
+
+    return story
 
 
-def generate_story():
+def generate_story(topic=""):
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -248,104 +303,105 @@ def generate_story():
 
         try:
 
+            print(
+                f"\nGenerating children's story "
+                f"{attempt}/{MAX_ATTEMPTS}"
+            )
+
             story = generate_with_gemini(
-                attempt,
-                previous_titles
+                topic,
+                previous_titles,
+                attempt
             )
 
-            duplicate_title = find_duplicate(
-                story,
-                history
-            )
-
-            if duplicate_title:
-
+            if find_duplicate(story, history):
                 raise ValueError(
-                    f"Possible duplicate of previous story: "
-                    f"{duplicate_title}"
+                    "Duplicate story detected. Trying another story."
                 )
 
-            story["source"] = "gemini"
+            with open(
+                STORY_FILE, "w", encoding="utf-8"
+            ) as file:
 
-            history.append({
-                "title": story["title"],
-                "text": story_text(story)
-            })
-
-            history = history[-MAX_HISTORY:]
-
-            HISTORY_FILE.write_text(
-                json.dumps(
-                    history,
-                    ensure_ascii=False,
-                    indent=2
-                ),
-                encoding="utf-8"
-            )
-
-            STORY_FILE.write_text(
-                json.dumps(
+                json.dump(
                     story,
+                    file,
                     ensure_ascii=False,
-                    indent=2
-                ),
-                encoding="utf-8"
-            )
+                    indent=4
+                )
 
-            print(
-                f"New Bal Hanuman Ji story accepted "
-                f"on attempt {attempt}."
-            )
+            print("\nStory generated successfully!")
+            print("Title:", story["title"])
 
             return story
 
-        except Exception as exc:
+        except Exception as error:
 
-            last_error = exc
+            last_error = error
 
             print(
-                f"Story attempt {attempt}/{MAX_ATTEMPTS} "
-                f"rejected: {exc}"
+                f"Attempt {attempt} failed: {error}"
             )
 
-            error_message = str(exc).upper()
-
-            temporary_error = any(
-                error in error_message
-                for error in (
-                    "503",
-                    "429",
-                    "500",
-                    "UNAVAILABLE",
-                    "RESOURCE_EXHAUSTED",
-                    "INTERNAL"
-                )
-            )
-
-            if temporary_error and attempt < MAX_ATTEMPTS:
-
-                wait_seconds = 10 * (2 ** (attempt - 1))
-
-                print(
-                    f"Gemini temporarily unavailable. "
-                    f"Waiting {wait_seconds} seconds..."
-                )
-
-                time.sleep(wait_seconds)
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(min(attempt * 5, 30))
 
     raise RuntimeError(
-        f"STOP: Gemini did not produce a valid, sufficiently "
-        f"new Bal Hanuman Ji story after {MAX_ATTEMPTS} attempts. "
-        f"Nothing should be uploaded. Last error: {last_error}"
+        f"Story generation failed after {MAX_ATTEMPTS} attempts. "
+        f"Last error: {last_error}"
     )
+
+
+def record_successful_story(story):
+
+    history = load_history()
+
+    if find_duplicate(story, history):
+        return
+
+    history.append({
+        "title": story["title"],
+        "text": story_text(story)
+    })
+
+    HISTORY_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    with open(
+        HISTORY_FILE, "w", encoding="utf-8"
+    ) as file:
+
+        json.dump(
+            history[-365:],
+            file,
+            ensure_ascii=False,
+            indent=4
+        )
 
 
 if __name__ == "__main__":
 
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--topic",
+        default="",
+        help="Optional children's story topic"
+    )
+
+    args = parser.parse_args()
+
+    story = generate_story(args.topic)
+
     print(
         json.dumps(
-            generate_story(),
+            story,
             ensure_ascii=False,
-            indent=2
+            indent=4
         )
     )
+
