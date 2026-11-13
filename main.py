@@ -1,7 +1,6 @@
 
 import argparse
 import json
-import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,10 +14,13 @@ from audio_generator import generate_audio
 from video_editor import render_video
 from thumbnail_generator import create_thumbnail
 
+
 BASE_DIR = Path(__file__).resolve().parent
+
 load_dotenv(BASE_DIR / ".env")
 
 OUTPUT_DIR = BASE_DIR / "output"
+
 STORY_FILE = OUTPUT_DIR / "story.json"
 VIDEO_FILE = OUTPUT_DIR / "daily_video.mp4"
 THUMBNAIL_FILE = OUTPUT_DIR / "thumbnail.jpg"
@@ -47,25 +49,31 @@ def save_metadata(story):
 
     metadata = {
         "title": story["title"] + " | Hindi Kids Story",
+
         "description": (
             story["title"]
             + "\n\n"
             + story["moral"]
             + "\n\nA Hindi story for children."
         ),
+
         "tags": [
             "Hindi Kids Story",
             "Children Stories",
             "Hindi Moral Story",
             "Kya Bache"
         ],
+
         "category": "Education",
-        "privacy": "private"
+
+        "privacy": "public",
+
+        "story_source": story.get("source", "groq"),
+
+        "scene_count": len(story.get("scenes", []))
     }
 
-    with open(
-        METADATA_FILE, "w", encoding="utf-8"
-    ) as file:
+    with open(METADATA_FILE, "w", encoding="utf-8") as file:
 
         json.dump(
             metadata,
@@ -73,6 +81,8 @@ def save_metadata(story):
             ensure_ascii=False,
             indent=4
         )
+
+    print("\nUpload metadata created successfully.")
 
 
 def main():
@@ -105,88 +115,103 @@ def main():
     print("================================\n")
 
     # Step 1: Generate or load story.
+
     if args.use_existing_story:
 
         print("Loading existing story...")
+
         story = load_existing_story()
 
     else:
 
         print("Generating new children's story...")
+
         story = generate_story(args.topic)
 
     print("\nStory:", story["title"])
 
-    # Step 2: Generate AI images.
-    print("\nGenerating 12 AI cartoon images...")
+    # Validate story.
+
+    if len(story.get("scenes", [])) != 12:
+        raise RuntimeError(
+            "Story must contain exactly 12 scenes."
+        )
+
+    # Step 2: Generate scene images.
+
+    print("\nGenerating 12 cartoon images...")
 
     image_paths = create_scene_images(story)
 
     if len(image_paths) != 12:
-        raise RuntimeError("Image generation did not produce 12 images.")
+        raise RuntimeError(
+            "Image generation did not produce 12 images."
+        )
 
-    # Step 3: Generate audio.
+    # Step 3: Generate Hindi narration.
+
     print("\nGenerating Hindi narration...")
 
     audio_paths = generate_audio(story)
 
-    if len(audio_paths) != 13:
+    if not audio_paths:
         raise RuntimeError(
-            "Expected 13 audio files: 12 scenes and 1 moral."
+            "Audio generation failed."
         )
 
-    # Step 4: Render video.
+    # Step 4: Create video.
+
     print("\nRendering final video...")
 
-    # Keep the previous successful video safe.
-    backup_video = OUTPUT_DIR / "previous_successful_video.mp4"
+    rendered_video = render_video(
+        image_paths,
+        audio_paths
+    )
 
-    if VIDEO_FILE.exists():
-        shutil.copy2(VIDEO_FILE, backup_video)
-
-    try:
-        rendered_video = render_video(
-            image_paths,
-            audio_paths
+    if not VIDEO_FILE.exists():
+        raise FileNotFoundError(
+            "Final video was not created: " + str(VIDEO_FILE)
         )
 
-        if not Path(rendered_video).is_file():
-            raise RuntimeError("Final video was not created.")
-
-        if Path(rendered_video).stat().st_size == 0:
-            raise RuntimeError("Final video is empty.")
-
-    except Exception:
-
-        if backup_video.exists():
-            shutil.copy2(backup_video, VIDEO_FILE)
-
-        raise
-
     # Step 5: Generate thumbnail.
-    print("\nGenerating thumbnail...")
+
+    print("\nGenerating YouTube thumbnail...")
 
     create_thumbnail(story)
 
-    # Step 6: Save metadata.
+    if not THUMBNAIL_FILE.exists():
+        raise FileNotFoundError(
+            "Thumbnail was not created: " + str(THUMBNAIL_FILE)
+        )
+
+    # Step 6: Create YouTube metadata.
+
+    print("\nCreating upload metadata...")
+
     save_metadata(story)
 
-    # Step 7: Update history only after successful video creation.
+    # Step 7: Save story history.
+
     if not args.use_existing_story:
+
+        print("\nSaving story history...")
+
         record_successful_story(story)
 
+    # Final status.
+
     print("\n================================")
-    print("VIDEO GENERATION SUCCESSFUL")
+    print("VIDEO AUTOMATION COMPLETED")
     print("================================")
 
-    print("\nVideo:", VIDEO_FILE)
+    print("\nStory:", story["title"])
+    print("Scenes:", len(story["scenes"]))
+    print("Video:", VIDEO_FILE)
     print("Thumbnail:", THUMBNAIL_FILE)
     print("Metadata:", METADATA_FILE)
 
-    print(
-        "\nYouTube upload was NOT started."
-        "\nPlease review the video before uploading."
-    )
+    print("\nYouTube upload was NOT started.")
+    print("The GitHub Actions workflow handles YouTube upload.")
 
 
 if __name__ == "__main__":
