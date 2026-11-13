@@ -1,20 +1,18 @@
 
-name: Kya Bache YouTube Automation
+name: Kya Bache Daily YouTube Automation
 
 on:
   workflow_dispatch:
-    inputs:
-      upload_to_youtube:
-        description: "Upload generated video to YouTube"
-        required: true
-        type: boolean
-        default: false
+
+  schedule:
+    # Daily at 6:00 AM India time
+    - cron: '30 0 * * *'
 
 permissions:
   contents: write
 
 concurrency:
-  group: kya-bache-video
+  group: kya-bache-daily-video
   cancel-in-progress: false
 
 jobs:
@@ -69,19 +67,19 @@ jobs:
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
 
-      - name: Save video for review
+      - name: Save generated video
         uses: actions/upload-artifact@v4
         with:
-          name: kya-bache-generated-video
+          name: kya-bache-daily-video
           path: |
             output/daily_video.mp4
             output/thumbnail.jpg
             output/story.json
+            output/upload_metadata.json
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload video to YouTube
-        if: inputs.upload_to_youtube == true
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
