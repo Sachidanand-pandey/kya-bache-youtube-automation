@@ -1,6 +1,8 @@
 
 import argparse
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,6 +25,9 @@ OUTPUT_DIR = BASE_DIR / "output"
 
 STORY_FILE = OUTPUT_DIR / "story.json"
 VIDEO_FILE = OUTPUT_DIR / "daily_video.mp4"
+FINAL_VIDEO_FILE = OUTPUT_DIR / "daily_video_with_outro.mp4"
+OUTRO_SCRIPT = BASE_DIR / "outro_generator.py"
+
 THUMBNAIL_FILE = OUTPUT_DIR / "thumbnail.jpg"
 METADATA_FILE = OUTPUT_DIR / "upload_metadata.json"
 
@@ -85,6 +90,47 @@ def save_metadata(story):
     print("\nUpload metadata created successfully.")
 
 
+def add_outro():
+
+    print("\nAdding Like, Share and Subscribe outro...")
+
+    if not OUTRO_SCRIPT.exists():
+        raise FileNotFoundError(
+            "Outro generator not found: " + str(OUTRO_SCRIPT)
+        )
+
+    if not VIDEO_FILE.exists():
+        raise FileNotFoundError(
+            "Original video not found: " + str(VIDEO_FILE)
+        )
+
+    # Run the existing outro generator.
+    subprocess.run(
+        [
+            sys.executable,
+            str(OUTRO_SCRIPT),
+            str(VIDEO_FILE)
+        ],
+        cwd=str(BASE_DIR),
+        check=True
+    )
+
+    if not FINAL_VIDEO_FILE.exists():
+        raise FileNotFoundError(
+            "Final video with outro was not created: "
+            + str(FINAL_VIDEO_FILE)
+        )
+
+    if FINAL_VIDEO_FILE.stat().st_size == 0:
+        raise RuntimeError(
+            "Final video with outro is empty."
+        )
+
+    print("\nLike, Share and Subscribe outro added successfully!")
+
+    return FINAL_VIDEO_FILE
+
+
 def main():
 
     parser = argparse.ArgumentParser(
@@ -130,8 +176,6 @@ def main():
 
     print("\nStory:", story["title"])
 
-    # Validate story.
-
     if len(story.get("scenes", [])) != 12:
         raise RuntimeError(
             "Story must contain exactly 12 scenes."
@@ -159,9 +203,9 @@ def main():
             "Audio generation failed."
         )
 
-    # Step 4: Create video.
+    # Step 4: Create original video.
 
-    print("\nRendering final video...")
+    print("\nRendering original video...")
 
     rendered_video = render_video(
         image_paths,
@@ -170,10 +214,14 @@ def main():
 
     if not VIDEO_FILE.exists():
         raise FileNotFoundError(
-            "Final video was not created: " + str(VIDEO_FILE)
+            "Original video was not created: " + str(VIDEO_FILE)
         )
 
-    # Step 5: Generate thumbnail.
+    # Step 5: Add Like, Share and Subscribe outro.
+
+    final_video = add_outro()
+
+    # Step 6: Generate thumbnail.
 
     print("\nGenerating YouTube thumbnail...")
 
@@ -184,13 +232,13 @@ def main():
             "Thumbnail was not created: " + str(THUMBNAIL_FILE)
         )
 
-    # Step 6: Create YouTube metadata.
+    # Step 7: Create YouTube metadata.
 
     print("\nCreating upload metadata...")
 
     save_metadata(story)
 
-    # Step 7: Save story history.
+    # Step 8: Save story history.
 
     if not args.use_existing_story:
 
@@ -206,7 +254,8 @@ def main():
 
     print("\nStory:", story["title"])
     print("Scenes:", len(story["scenes"]))
-    print("Video:", VIDEO_FILE)
+    print("Original video:", VIDEO_FILE)
+    print("Final video with outro:", final_video)
     print("Thumbnail:", THUMBNAIL_FILE)
     print("Metadata:", METADATA_FILE)
 
