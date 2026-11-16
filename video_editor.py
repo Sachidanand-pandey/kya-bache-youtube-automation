@@ -1,5 +1,6 @@
 
 import subprocess
+import math
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -9,9 +10,12 @@ MUSIC_DIR = BASE_DIR / "music"
 
 VIDEO_FILE = OUTPUT_DIR / "daily_video.mp4"
 
+FPS = 25
+WIDTH = 1920
+HEIGHT = 1080
+
 
 def run(command):
-
     result = subprocess.run(
         command,
         capture_output=True,
@@ -25,7 +29,6 @@ def run(command):
 
 
 def duration(path):
-
     command = [
         "ffprobe",
         "-v", "error",
@@ -48,33 +51,76 @@ def make_scene(image, audio, output, number):
 
     audio_duration = duration(audio)
 
+    # Different camera movement for different scenes.
+    scene_number = number if isinstance(number, int) else 13
+
+    zoom_in = scene_number % 2 != 0
+
+    if zoom_in:
+        zoom = "min(1.0+0.0006*on,1.08)"
+    else:
+        zoom = "max(1.08-0.0006*on,1.0)"
+
+    # Slow cinematic horizontal and vertical camera movement.
+    pan_x = (
+        "(iw-iw/zoom)/2"
+        "+(iw-iw/zoom)*0.18*sin(on/120)"
+    )
+
+    pan_y = (
+        "(ih-ih/zoom)/2"
+        "+(ih-ih/zoom)*0.12*cos(on/150)"
+    )
+
+    # Subtle colour variation between scenes.
+    saturation = 1.10 + (scene_number % 3) * 0.04
+
+    video_filter = (
+        "scale=1920:1080:force_original_aspect_ratio=increase,"
+        "crop=1920:1080,"
+        f"zoompan=z='{zoom}':"
+        f"x='{pan_x}':"
+        f"y='{pan_y}':"
+        "d=1:s=1920x1080:fps=25,"
+        f"eq=contrast=1.05:saturation={saturation}:brightness=0.01,"
+        "unsharp=5:5:0.4:3:3:0.0,"
+        "vignette=PI/5,"
+        "fade=t=in:st=0:d=0.30,"
+        "format=yuv420p"
+    )
+
+    audio_filter = "afade=t=in:st=0:d=0.15"
+
     command = [
         "ffmpeg",
         "-y",
         "-loop", "1",
-        "-framerate", "25",
+        "-framerate", str(FPS),
         "-i", str(image),
         "-i", str(audio),
-        "-vf",
-        (
-            "scale=1920:1080:force_original_aspect_ratio=increase,"
-            "crop=1920:1080,"
-            "zoompan=z='min(zoom+0.0005,1.08)':"
-            "d=1:s=1920x1080:fps=25,"
-            "format=yuv420p"
-        ),
+
+        "-vf", video_filter,
+        "-af", audio_filter,
+
         "-t", str(audio_duration),
+
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "veryfast",
         "-crf", "23",
+        "-pix_fmt", "yuv420p",
+
         "-c:a", "aac",
         "-b:a", "192k",
         "-ar", "44100",
+
+        "-threads", "2",
         "-shortest",
+        "-movflags", "+faststart",
+
         str(output)
     ]
 
-    print(f"Rendering scene {number}...")
+    print(f"Rendering cinematic scene {number}...")
 
     run(command)
 
@@ -88,6 +134,7 @@ def concatenate_scenes(scene_files, output):
     with open(list_file, "w", encoding="utf-8") as file:
 
         for scene in scene_files:
+
             safe_path = Path(scene).resolve().as_posix()
             safe_path = safe_path.replace("'", "'\\\\''")
 
@@ -99,12 +146,14 @@ def concatenate_scenes(scene_files, output):
         "-f", "concat",
         "-safe", "0",
         "-i", str(list_file),
+
         "-c", "copy",
         "-movflags", "+faststart",
+
         str(output)
     ]
 
-    print("Combining all scenes...")
+    print("Combining cinematic scenes...")
 
     run(command)
 
@@ -119,7 +168,9 @@ def add_background_music(video_file):
             music_files.extend(MUSIC_DIR.glob(extension))
 
     if not music_files:
+
         print("No background music found. Keeping narration only.")
+
         return video_file
 
     music_file = music_files[0]
@@ -132,21 +183,27 @@ def add_background_music(video_file):
         "ffmpeg",
         "-y",
         "-i", str(video_file),
+
         "-stream_loop", "-1",
         "-i", str(music_file),
+
         "-filter_complex",
         (
             "[1:a]volume=0.12[bg];"
             "[0:a][bg]amix=inputs=2:"
             "duration=first:dropout_transition=2[a]"
         ),
+
         "-map", "0:v",
         "-map", "[a]",
+
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
+
         "-shortest",
         "-movflags", "+faststart",
+
         str(final_file)
     ]
 
@@ -174,16 +231,18 @@ def render_video(image_paths, audio_paths):
         )
 
     for path in image_paths:
+
         if not Path(path).is_file():
             raise FileNotFoundError(f"Image missing: {path}")
 
     for path in audio_paths:
+
         if not Path(path).is_file():
             raise FileNotFoundError(f"Audio missing: {path}")
 
     scene_files = []
 
-    # Render the 12 story scenes.
+    # Render all 12 story scenes.
     for index in range(12):
 
         scene_output = TEMP_DIR / f"scene_{index + 1:02d}.mp4"
@@ -197,7 +256,7 @@ def render_video(image_paths, audio_paths):
 
         scene_files.append(scene_output)
 
-    # Show the final story image while the moral is narrated.
+    # Render the moral scene.
     moral_output = TEMP_DIR / "moral.mp4"
 
     make_scene(
@@ -209,13 +268,13 @@ def render_video(image_paths, audio_paths):
 
     scene_files.append(moral_output)
 
-    # Combine all 13 video segments.
+    # Combine all scenes.
     concatenate_scenes(scene_files, VIDEO_FILE)
 
-    # Mix optional background music.
+    # Add background music.
     add_background_music(VIDEO_FILE)
 
-    print("\nFinal video created successfully!")
+    print("\nCinematic video created successfully!")
     print("Video:", VIDEO_FILE)
 
     return str(VIDEO_FILE)
