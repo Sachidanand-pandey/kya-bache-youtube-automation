@@ -39,11 +39,13 @@ def get_font(size, bold=False, hindi=False):
             "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
             "/usr/share/fonts/truetype/noto/NotoSansDevanagariUI-Regular.ttf"
         ]
+
     elif bold:
         font_paths = [
             r"C:\Windows\Fonts\arialbd.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
         ]
+
     else:
         font_paths = [
             r"C:\Windows\Fonts\arial.ttf",
@@ -51,9 +53,12 @@ def get_font(size, bold=False, hindi=False):
         ]
 
     for font_path in font_paths:
+
         if Path(font_path).exists():
+
             try:
                 return ImageFont.truetype(font_path, size)
+
             except Exception:
                 continue
 
@@ -75,27 +80,32 @@ def create_outro_image(image_path):
     image = Image.new(
         "RGB",
         (WIDTH, HEIGHT),
-        "#FFF0C2"
+        "#17213D"
     )
 
     draw = ImageDraw.Draw(image)
 
+    # Main white card
     draw.rounded_rectangle(
-        (35, 35, 1245, 685),
+        (30, 25, 1250, 695),
         radius=45,
-        fill="white"
+        fill="#FFFFFF"
     )
 
+    # Heading background
     draw.rounded_rectangle(
-        (70, 65, 1210, 205),
+        (70, 55, 1210, 205),
         radius=35,
         fill="#FFE08A"
     )
 
-    title_font = get_font(55, hindi=True)
-    body_font = get_font(36, hindi=True)
-    button_font = get_font(34, bold=True)
+    # Fonts
+    title_font = get_font(58, hindi=True)
+    body_font = get_font(30, hindi=True)
+    button_font = get_font(32, bold=True)
+    ending_font = get_font(25, hindi=True)
 
+    # Title
     title = "कहानी अच्छी लगी?"
 
     box = draw.textbbox(
@@ -107,26 +117,44 @@ def create_outro_image(image_path):
     title_width = box[2] - box[0]
 
     draw.text(
-        ((WIDTH - title_width) / 2, 105),
+        ((WIDTH - title_width) / 2, 95),
         title,
         font=title_font,
         fill="#713B00"
     )
 
+    # LIKE, SHARE, SUBSCRIBE buttons
     buttons = [
-        ((150, 330, 430, 445), "#E53935", "LIKE"),
-        ((500, 330, 780, 445), "#2EAD62", "SUBSCRIBE"),
-        ((850, 330, 1130, 445), "#2878D0", "SHARE")
+
+        ((65, 290, 435, 440), "#E53935", "LIKE"),
+
+        ((455, 290, 825, 440), "#2878D0", "SHARE"),
+
+        ((845, 290, 1215, 440), "#159447", "SUBSCRIBE")
+
     ]
 
     for coords, color, label in buttons:
 
+        x1, y1, x2, y2 = coords
+
+        # Button shadow
         draw.rounded_rectangle(
-            coords,
-            radius=28,
-            fill=color
+            (x1 + 5, y1 + 9, x2 + 5, y2 + 9),
+            radius=30,
+            fill="#BBBBBB"
         )
 
+        # Main button
+        draw.rounded_rectangle(
+            coords,
+            radius=30,
+            fill=color,
+            outline="#222222",
+            width=3
+        )
+
+        # Center button text
         box = draw.textbbox(
             (0, 0),
             label,
@@ -136,13 +164,13 @@ def create_outro_image(image_path):
         text_width = box[2] - box[0]
         text_height = box[3] - box[1]
 
-        x = coords[0] + (
-            coords[2] - coords[0] - text_width
+        x = x1 + (
+            x2 - x1 - text_width
         ) / 2
 
-        y = coords[1] + (
-            coords[3] - coords[1] - text_height
-        ) / 2 - 5
+        y = y1 + (
+            y2 - y1 - text_height
+        ) / 2 - box[1]
 
         draw.text(
             (x, y),
@@ -151,7 +179,8 @@ def create_outro_image(image_path):
             fill="white"
         )
 
-    footer = "नई कहानियों के लिए चैनल को सब्सक्राइब करें!"
+    # Hindi footer
+    footer = "लाइक करें • शेयर करें • सब्सक्राइब करें"
 
     box = draw.textbbox(
         (0, 0),
@@ -162,15 +191,42 @@ def create_outro_image(image_path):
     footer_width = box[2] - box[0]
 
     draw.text(
-        ((WIDTH - footer_width) / 2, 520),
+        ((WIDTH - footer_width) / 2, 535),
         footer,
         font=body_font,
-        fill="#333333"
+        fill="#222222"
+    )
+
+    # Final message background
+    draw.rounded_rectangle(
+        (250, 610, 1030, 665),
+        radius=20,
+        fill="#FFE08A"
+    )
+
+    ending = "फिर मिलेंगे एक नई कहानी के साथ!"
+
+    box = draw.textbbox(
+        (0, 0),
+        ending,
+        font=ending_font
+    )
+
+    ending_width = box[2] - box[0]
+
+    draw.text(
+        ((WIDTH - ending_width) / 2, 620),
+        ending,
+        font=ending_font,
+        fill="#713B00"
     )
 
     image.save(image_path)
 
-    print("Outro image created:", image_path)
+    print(
+        "Like, Share and Subscribe outro image created:",
+        image_path
+    )
 
 
 # ==========================================
@@ -204,6 +260,7 @@ def run_ffmpeg(command):
     )
 
     if result.returncode != 0:
+
         raise RuntimeError(
             "FFmpeg error:\n" + result.stderr[-4000:]
         )
@@ -218,6 +275,7 @@ def add_outro(video_path):
     video_path = Path(video_path).resolve()
 
     if not video_path.exists():
+
         raise FileNotFoundError(
             f"Video not found: {video_path}"
         )
@@ -225,6 +283,7 @@ def add_outro(video_path):
     ffmpeg = shutil.which("ffmpeg")
 
     if not ffmpeg:
+
         raise RuntimeError(
             "FFmpeg is not installed or not in PATH."
         )
@@ -237,15 +296,20 @@ def add_outro(video_path):
 
     final_video = folder / "daily_video_with_outro.mp4"
 
-    print("\nCreating outro image...")
+    print("\nCreating Like, Share and Subscribe image...")
 
     create_outro_image(image_path)
 
     print("\nGenerating Hindi voice...")
 
     try:
-        asyncio.run(create_hindi_audio(audio_path))
+
+        asyncio.run(
+            create_hindi_audio(audio_path)
+        )
+
     except Exception as error:
+
         raise RuntimeError(
             f"Hindi voice generation failed: {error}"
         ) from error
@@ -254,19 +318,31 @@ def add_outro(video_path):
 
     run_ffmpeg([
         ffmpeg, "-y",
+
         "-loop", "1",
+        "-framerate", "25",
         "-i", str(image_path),
+
         "-i", str(audio_path),
+
         "-t", str(OUTRO_DURATION),
+
         "-vf", "scale=1280:720,format=yuv420p",
+
         "-r", "25",
+
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "veryfast",
         "-crf", "23",
+
         "-c:a", "aac",
         "-b:a", "128k",
+
         "-af", "apad",
+
         "-shortest",
+        "-movflags", "+faststart",
+
         str(outro_video)
     ])
 
@@ -274,8 +350,10 @@ def add_outro(video_path):
 
     run_ffmpeg([
         ffmpeg, "-y",
+
         "-i", str(video_path),
         "-i", str(outro_video),
+
         "-filter_complex",
 
         "[0:v]scale=1280:720:force_original_aspect_ratio=decrease,"
@@ -293,22 +371,29 @@ def add_outro(video_path):
 
         "-map", "[v]",
         "-map", "[a]",
+
         "-c:v", "libx264",
-        "-preset", "medium",
+        "-preset", "veryfast",
         "-crf", "23",
+
         "-c:a", "aac",
         "-b:a", "128k",
+
         "-movflags", "+faststart",
+
         str(final_video)
     ])
 
     if not final_video.exists() or final_video.stat().st_size == 0:
+
         raise RuntimeError(
             "Final video with outro was not created correctly."
         )
 
     print("\nSUCCESS!")
     print("Final video:", final_video)
+
+    print("\nLIKE, SHARE AND SUBSCRIBE buttons added successfully!")
 
 
 # ==========================================
@@ -318,10 +403,12 @@ def add_outro(video_path):
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
+
         print(
             "Usage: python outro_generator.py "
             "output/daily_video.mp4"
         )
+
         sys.exit(1)
 
     add_outro(sys.argv[1])
