@@ -60,6 +60,7 @@ jobs:
       - name: Check generated files
         run: |
           test -s output/daily_video.mp4
+          test -s output/daily_video_with_outro.mp4
           test -s output/thumbnail.jpg
           test -s output/story.json
           test -s output/upload_metadata.json
@@ -78,13 +79,13 @@ jobs:
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
 
-      # Step 8: Save generated video and thumbnail
+      # Step 8: Save final video and thumbnail
       - name: Save generated video and thumbnail
         uses: actions/upload-artifact@v4
         with:
           name: kya-bache-daily-video
           path: |
-            output/daily_video.mp4
+            output/daily_video_with_outro.mp4
             output/thumbnail.jpg
             output/story.json
             output/upload_metadata.json
